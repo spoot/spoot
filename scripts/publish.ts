@@ -94,6 +94,7 @@ interface ReleaseDecision {
   newVersion: string;
   changelogEntry: string;
   isNew: boolean;
+  isAlreadyBumped: boolean; // version committed to git but npm publish failed
 }
 
 // ── config ───────────────────────────────────────────────────────────────────
@@ -185,6 +186,41 @@ function getPublishedBaselineCommit(
     }
   }
   return null;
+}
+
+// Walk git log for the package's package.json from newest to oldest.
+// Return the oldest commit where the package.json still carries `version`
+// (i.e. the release commit that first introduced this version).
+// Returns null if the version never appears in history.
+function getVersionIntroCommit(relDir: string, version: string): string | null {
+  const shas = execFileSync(
+    "git",
+    ["log", "--format=%H", "--", `${relDir}/package.json`],
+    { cwd: ROOT, encoding: "utf8" },
+  )
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+
+  let introCommit: string | null = null;
+  for (const sha of shas) {
+    try {
+      const pkg: PackageJson = JSON.parse(
+        execFileSync("git", ["show", `${sha}:${relDir}/package.json`], {
+          cwd: ROOT,
+          encoding: "utf8",
+        }),
+      );
+      if (pkg.version === version) {
+        introCommit = sha; // keep walking back to find the oldest
+      } else {
+        break;
+      }
+    } catch {
+      break;
+    }
+  }
+  return introCommit;
 }
 
 function getDiff(relDir: string, since: string): string {
@@ -608,24 +644,62 @@ async function main() {
   for (const pkg of packages) {
     const relDir = pkg.dir.slice(ROOT.length + 1);
 
-    // Check npm for what's already published, then find the matching commit in
-    // git history.  That commit is the published baseline — everything between
-    // it and HEAD is unreleased work.
+    // Check npm for what's already published, then determine what needs to
+    // be released.  Three cases:
+    //
+    //  1. Current version IS on npm → find baseline and check for new changes.
+    //  2. Current version NOT on npm, but already committed to git (a prior run
+    //     committed + tagged but crashed before npm publish) → re-publish.
+    //  3. Current version NOT on npm and no intro commit → brand-new package.
     process.stdout.write(`  ${pkg.name}  checking registry...  `);
     const published = getPublishedVersions(pkg.name);
-    const sinceCommit = getPublishedBaselineCommit(relDir, published);
 
-    if (!sinceCommit) {
-      // No published version found in git history — first-ever publish.
-      console.log(`NEW  →  ${pkg.version}`);
-      decisions.set(pkg.name, {
-        pkg,
-        bump: "patch",
-        newVersion: pkg.version,
-        changelogEntry: `## [${pkg.version}] - ${today}\n\n- Initial release.\n`,
-        isNew: true,
-      });
-      continue;
+    let sinceCommit: string | null;
+
+    if (!published.has(pkg.version)) {
+      // Current version not on npm yet.
+      const introCommit = getVersionIntroCommit(relDir, pkg.version);
+
+      if (!introCommit) {
+        // Never in git history: genuine first release.
+        console.log(`NEW  →  ${pkg.version}`);
+        decisions.set(pkg.name, {
+          pkg,
+          bump: "patch",
+          newVersion: pkg.version,
+          changelogEntry: `## [${pkg.version}] - ${today}\n\n- Initial release.\n`,
+          isNew: true,
+          isAlreadyBumped: false,
+        });
+        continue;
+      }
+
+      // Check for changes AFTER the version was committed to git.
+      const postReleaseDiff = getDiff(relDir, introCommit);
+      if (!postReleaseDiff.trim()) {
+        // Already committed + tagged, no new changes — just re-publish.
+        console.log(`unpublished  →  ${pkg.version}`);
+        decisions.set(pkg.name, {
+          pkg,
+          bump: "patch",
+          newVersion: pkg.version,
+          changelogEntry: "",
+          isNew: false,
+          isAlreadyBumped: true,
+        });
+        continue;
+      }
+
+      // New changes on top of the committed-but-unpublished version — analyze
+      // them and bump further from the current version.
+      sinceCommit = introCommit;
+    } else {
+      // Current version is on npm — check for new work since that version.
+      sinceCommit = getPublishedBaselineCommit(relDir, published);
+      if (!sinceCommit) {
+        console.log(`unchanged  (${pkg.version})`);
+        continue;
+      }
     }
 
     const diff = getDiff(relDir, sinceCommit);
@@ -662,6 +736,7 @@ async function main() {
         newVersion: cachedVersion,
         changelogEntry: makeChangelogEntry(cachedVersion, cached.summary, cached.details, today),
         isNew: false,
+        isAlreadyBumped: false,
       });
       continue;
     }
@@ -686,6 +761,7 @@ async function main() {
       newVersion,
       changelogEntry: makeChangelogEntry(newVersion, analysis.summary, analysis.details, today),
       isNew: false,
+      isAlreadyBumped: false,
     });
   }
 
@@ -718,6 +794,7 @@ async function main() {
           today,
         ),
         isNew: false,
+        isAlreadyBumped: false,
       });
       changed = true;
     }
@@ -730,8 +807,12 @@ async function main() {
 
   console.log(`\n🚀 Release plan (${decisions.size} package(s)):\n`);
   for (const [, d] of decisions) {
-    const label = d.isNew ? "NEW" : d.bump;
-    console.log(`  ${d.pkg.name}  ${label}  ${d.pkg.version} → ${d.newVersion}`);
+    if (d.isAlreadyBumped) {
+      console.log(`  ${d.pkg.name}  re-publish  ${d.newVersion}`);
+    } else {
+      const label = d.isNew ? "NEW" : d.bump;
+      console.log(`  ${d.pkg.name}  ${label}  ${d.pkg.version} → ${d.newVersion}`);
+    }
   }
 
   if (DRY_RUN) {
@@ -740,43 +821,28 @@ async function main() {
   }
 
   // 3. Write package.json + CHANGELOG ────────────────────────────────────────
-  console.log("\n✍️  Updating versions and changelogs...");
-  for (const [, d] of decisions) {
-    const updatedJson = { ...d.pkg.json, version: d.newVersion };
-    writeFileSync(d.pkg.pkgPath, JSON.stringify(updatedJson, null, 2) + "\n");
+  const newReleases = [...decisions.values()].filter((d) => !d.isAlreadyBumped);
+  if (newReleases.length > 0) {
+    console.log("\n✍️  Updating versions and changelogs...");
+    for (const d of newReleases) {
+      const updatedJson = { ...d.pkg.json, version: d.newVersion };
+      writeFileSync(d.pkg.pkgPath, JSON.stringify(updatedJson, null, 2) + "\n");
 
-    if (d.isNew) {
-      writeFileSync(join(d.pkg.dir, "CHANGELOG.md"), `# Changelog\n\n${d.changelogEntry}`);
-    } else {
-      prependChangelog(d.pkg.dir, d.changelogEntry);
+      if (d.isNew) {
+        writeFileSync(join(d.pkg.dir, "CHANGELOG.md"), `# Changelog\n\n${d.changelogEntry}`);
+      } else {
+        prependChangelog(d.pkg.dir, d.changelogEntry);
+      }
     }
   }
 
-  // 4. Commit + tag + push ────────────────────────────────────────────────────
-  const releaseList = [...decisions.values()]
-    .map((d) => `${d.pkg.name}@${d.newVersion}`)
-    .join(", ");
-  console.log("\n📝 Committing...");
-  git(`config user.email "github-actions[bot]@users.noreply.github.com"`);
-  git(`config user.name "github-actions[bot]"`);
-  git(`add -A`);
-  git(`commit -m "chore: release ${releaseList} [skip ci]"`);
-
-  for (const [, d] of decisions) {
-    const tag = `${d.pkg.name}@${d.newVersion}`;
-    // Annotated tags are required for --follow-tags to include them in the push.
-    execFileSync("git", ["tag", "-a", tag, "-m", tag], { cwd: ROOT });
-    console.log(`  Tagged: ${tag}`);
-  }
-
-  console.log("\n⬆️  Pushing...");
-  git(`push origin HEAD:main --follow-tags`, { stdio: "inherit" });
-
-  // 5. Build ──────────────────────────────────────────────────────────────────
+  // 4. Build ──────────────────────────────────────────────────────────────────
   console.log("\n🔨 Building packages...");
   execSync("pnpm build", { cwd: ROOT, stdio: "inherit" });
 
-  // 6. Publish ────────────────────────────────────────────────────────────────
+  // 5. Publish ────────────────────────────────────────────────────────────────
+  // Publish BEFORE committing to git so a publish failure doesn't leave the
+  // git history ahead of npm.
   console.log("\n📤 Publishing to npm...\n");
   for (const [, d] of decisions) {
     console.log(`  ${d.pkg.name}@${d.newVersion}`);
@@ -785,6 +851,29 @@ async function main() {
       cwd: d.pkg.dir,
       stdio: "inherit",
     });
+  }
+
+  // 6. Commit + tag + push ────────────────────────────────────────────────────
+  // Only commit packages that weren't already committed from a previous run.
+  if (newReleases.length > 0) {
+    const releaseList = newReleases.map((d) => `${d.pkg.name}@${d.newVersion}`).join(", ");
+    console.log("\n📝 Committing...");
+    git(`config user.email "github-actions[bot]@users.noreply.github.com"`);
+    git(`config user.name "github-actions[bot]"`);
+    git(`add -A`);
+    git(`commit -m "chore: release ${releaseList} [skip ci]"`);
+
+    for (const d of newReleases) {
+      const tag = `${d.pkg.name}@${d.newVersion}`;
+      // Annotated tags are required for --follow-tags to include them in the push.
+      execFileSync("git", ["tag", "-a", tag, "-m", tag], { cwd: ROOT });
+      console.log(`  Tagged: ${tag}`);
+    }
+
+    console.log("\n⬆️  Pushing...");
+    git(`push origin HEAD:main --follow-tags`, { stdio: "inherit" });
+  } else {
+    console.log("\n(No new commits — all packages were re-published from a prior release commit)");
   }
 
   console.log("\n✅ Done!\n");
