@@ -29,6 +29,7 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import OpenAI from "openai";
 
 // Load .env.local for local development (ignored by git, never present in CI)
 if (existsSync(join(process.cwd(), ".env.local"))) {
@@ -161,11 +162,10 @@ function prependChangelog(pkgDir: string, entry: string): void {
 // ── gemini via cloudflare ai gateway ─────────────────────────────────────────
 
 async function analyzeWithGemini(pkg: Pkg, diff: string): Promise<GeminiAnalysis> {
-  const gatewayUrl = requireEnv("CF_AI_GATEWAY_URL");
-  const gatewayToken = requireEnv("CF_AI_GATEWAY_TOKEN");
-
-  const endpoint =
-    `${gatewayUrl.replace(/\/$/, "")}/google-ai-studio/v1beta/models/${MODEL}:generateContent`;
+  const client = new OpenAI({
+    apiKey: requireEnv("CF_AI_GATEWAY_TOKEN"),
+    baseURL: `${requireEnv("CF_AI_GATEWAY_URL").replace(/\/$/, "")}/compat`,
+  });
 
   const prompt = `
 You are a semantic versioning expert analyzing a git diff for an npm package.
@@ -194,27 +194,13 @@ Rules:
 Only src/ changes matter for the bump type.
 `.trim();
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "cf-aig-authorization": `Bearer ${gatewayToken}`,
-    },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json" },
-    }),
+  const response = await client.chat.completions.create({
+    model: `google-ai-studio/${MODEL}`,
+    messages: [{ role: "user", content: prompt }],
+    response_format: { type: "json_object" },
   });
 
-  if (!response.ok) {
-    throw new Error(`Gemini API error ${response.status}: ${await response.text()}`);
-  }
-
-  const data = (await response.json()) as {
-    candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
-  };
-
-  const text = data.candidates[0]?.content.parts[0]?.text ?? "{}";
+  const text = response.choices[0]?.message.content ?? "{}";
   const result = JSON.parse(text) as GeminiAnalysis;
 
   if (!["major", "minor", "patch", "none"].includes(result.bump)) {

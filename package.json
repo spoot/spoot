@@ -17,5 +17,8 @@
     "@types/node": "^25.3.2",
     "typescript": "^5.8.3"
   },
-  "packageManager": "pnpm@10.20.0"
+  "packageManager": "pnpm@10.20.0",
+  "dependencies": {
+    "openai": "^6.25.0"
+  }
 }
