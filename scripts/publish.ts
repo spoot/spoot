@@ -15,9 +15,18 @@
  * Credentials are loaded from .env.local when present (local dev), and from
  * environment variables in CI. See .env.local.example for the required vars.
  *
+ * Commit messages (subject + body) since the last tag are included in the
+ * prompt so hints like "BREAKING CHANGE" or "this is a major change" are
+ * picked up automatically.
+ *
+ * The model is given two tools — read_file and grep — to inspect source files
+ * when the diff alone is not enough context. Tool arguments are always passed
+ * as separate argv elements via execFileSync (never shell-interpolated) so the
+ * remote model cannot inject shell commands.
+ *
  * Gemini responses are validated against a Zod schema. On invalid JSON or a
- * schema mismatch the script retries up to MAX_RETRIES times, appending a
- * reminder message each time so the model can self-correct.
+ * schema mismatch the script retries up to MAX_PARSE_RETRIES times, appending
+ * a correction message each time so the model can self-correct.
  *
  * Required env vars:
  *   CF_AI_GATEWAY_URL    Cloudflare AI Gateway base URL
@@ -30,9 +39,9 @@
  *   MODEL      Gemini model to use (default: gemini-2.0-flash)
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import OpenAI from "openai";
 import { z } from "zod";
 
@@ -109,6 +118,18 @@ function getDiff(relDir: string, sinceTag: string): string {
   }
 }
 
+function getCommitLog(relDir: string, sinceTag: string): string {
+  try {
+    return execFileSync(
+      "git",
+      ["log", `${sinceTag}..HEAD`, "--format=%s%n%b", "--", relDir],
+      { cwd: ROOT, encoding: "utf8" },
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
 // ── package discovery ─────────────────────────────────────────────────────────
 
 function getPackages(): Pkg[] {
@@ -178,26 +199,154 @@ type GeminiAnalysis = Extract<z.infer<typeof GeminiResponseSchema>, { type: "ana
 
 const RESPONSE_SCHEMA = JSON.stringify(GeminiResponseSchema.toJSONSchema(), null, 2);
 
-const MAX_RETRIES = 3;
+const MAX_PARSE_RETRIES = 3;
+const MAX_TOOL_ITERATIONS = 20;
 
-async function analyzeWithGemini(pkg: Pkg, diff: string): Promise<GeminiAnalysis> {
+// Tool definitions sent to the model. Parameters are plain JSON Schema objects
+// (not Zod) since these are part of the OpenAI API contract, not our validation.
+const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "read_file",
+      description: "Read a file from the repository. Returns the file contents.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Path relative to the repository root",
+          },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "grep",
+      description:
+        "Search for a regex pattern in repository source files (.ts, .tsx, .js). " +
+        "Searches recursively, excluding node_modules and dist.",
+      parameters: {
+        type: "object",
+        properties: {
+          pattern: {
+            type: "string",
+            description: "Regular expression to search for",
+          },
+          path: {
+            type: "string",
+            description:
+              "File or directory to search, relative to the repo root. " +
+              "Defaults to the package directory being analyzed.",
+          },
+          context_lines: {
+            type: "integer",
+            description: "Lines of context around each match (0–10, default 2)",
+          },
+          max_results: {
+            type: "integer",
+            description: "Maximum number of matching lines to return (1–100, default 20)",
+          },
+        },
+        required: ["pattern"],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+// Execute a tool call from the model. All external inputs (file paths, grep
+// patterns) come from the remote model, so we validate paths are within the
+// repo and pass grep arguments as a plain array to execFileSync — never
+// interpolated into a shell string — to prevent command injection.
+function executeTool(name: string, rawArgs: unknown, pkgRelDir: string): string {
+  const args = (rawArgs ?? {}) as Record<string, unknown>;
+
+  if (name === "read_file") {
+    const filePath = String(args.path ?? "");
+    const abs = resolve(ROOT, filePath);
+    if (!abs.startsWith(ROOT + "/") && abs !== ROOT) {
+      return "Error: path must be within the repository";
+    }
+    if (!existsSync(abs)) return "Error: file not found";
+    const content = readFileSync(abs, "utf8");
+    return content.length > 50_000 ? content.slice(0, 50_000) + "\n[...truncated]" : content;
+  }
+
+  if (name === "grep") {
+    const pattern = String(args.pattern ?? "");
+    if (!pattern) return "Error: pattern is required";
+
+    const targetPath = args.path ? resolve(ROOT, String(args.path)) : join(ROOT, pkgRelDir);
+    if (!targetPath.startsWith(ROOT + "/") && targetPath !== ROOT) {
+      return "Error: path must be within the repository";
+    }
+
+    const contextLines = Math.min(10, Math.max(0, Number(args.context_lines ?? 2)));
+    const maxResults = Math.min(100, Math.max(1, Number(args.max_results ?? 20)));
+
+    // Arguments are passed as a plain array — never concatenated into a shell
+    // string — so the model cannot inject additional shell commands.
+    const grepArgs = [
+      "-r",
+      "--include=*.ts",
+      "--include=*.tsx",
+      "--include=*.js",
+      "--exclude-dir=node_modules",
+      "--exclude-dir=dist",
+      "--exclude-dir=.git",
+      "-C", String(contextLines),
+      "-m", String(maxResults),
+      pattern,
+      targetPath,
+    ];
+
+    try {
+      const output = execFileSync("grep", grepArgs, { encoding: "utf8" });
+      return output.length > 20_000 ? output.slice(0, 20_000) + "\n[...truncated]" : output;
+    } catch (e: unknown) {
+      // exit code 1 means no matches, which is not an error
+      if ((e as { status?: number }).status === 1) return "No matches found";
+      return `grep error: ${(e as Error).message}`;
+    }
+  }
+
+  return `Error: unknown tool "${name}"`;
+}
+
+async function analyzeWithGemini(
+  pkg: Pkg,
+  diff: string,
+  commitLog: string,
+): Promise<GeminiAnalysis> {
   const client = new OpenAI({
     apiKey: requireEnv("CF_AI_GATEWAY_TOKEN"),
     baseURL: `${requireEnv("CF_AI_GATEWAY_URL").replace(/\/$/, "")}/compat`,
   });
 
+  const pkgRelDir = pkg.dir.slice(ROOT.length + 1);
+
   const initialMessage = `
-You are a semantic versioning expert analyzing a git diff for an npm package.
+You are a semantic versioning expert analyzing changes to an npm package.
 
 Package: ${pkg.name}
 Current version: ${pkg.version}
+
+Commits since last release:
+${commitLog || "(none)"}
 
 Git diff since last release:
 \`\`\`diff
 ${diff.slice(0, 30_000)}
 \`\`\`
 
-Determine the appropriate semantic version bump. Respond with valid JSON only — no markdown, no code fences.
+You have tools available to read files and search the source code if you need more context.
+
+When you are ready, respond with valid JSON only — no markdown, no code fences.
 Your response MUST conform to this JSON schema:
 
 ${RESPONSE_SCHEMA}
@@ -208,49 +357,86 @@ Rules for the "analysis" type:
 - "patch": Bug fixes, perf improvements, internal refactoring with no API change
 - "none": Only test files, README, CI config, or whitespace — no runtime change
 
-Only src/ changes matter for the bump type. If you cannot complete the analysis, respond with the "error" type.
+Pay attention to commit messages — they may explicitly indicate the bump type
+(e.g. "BREAKING CHANGE", "feat:", "fix:", or plain English like "this is a major change").
+Only src/ changes matter for the bump type. Use the "error" type if you cannot complete the analysis.
 `.trim();
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "user", content: initialMessage },
   ];
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  let toolIterations = 0;
+  let parseAttempts = 0;
+
+  while (true) {
     const response = await client.chat.completions.create({
       model: `google-ai-studio/${MODEL}`,
       messages,
+      tools: TOOLS,
       response_format: { type: "json_object" },
     });
 
-    const content = response.choices[0]?.message.content ?? "";
+    const choice = response.choices[0];
+
+    // Model wants to use a tool — execute it and feed the result back.
+    if (choice.finish_reason === "tool_calls") {
+      if (++toolIterations > MAX_TOOL_ITERATIONS) {
+        throw new Error(`Gemini exceeded the tool call limit (${MAX_TOOL_ITERATIONS})`);
+      }
+      messages.push(choice.message);
+      const toolResults: OpenAI.Chat.ChatCompletionToolMessageParam[] = (
+        choice.message.tool_calls ?? []
+      ).map((call) => {
+        if (call.type !== "function") {
+          return { role: "tool" as const, tool_call_id: call.id, content: `Error: unsupported tool type "${call.type}"` };
+        }
+        let callArgs: unknown;
+        try {
+          callArgs = JSON.parse(call.function.arguments);
+        } catch {
+          callArgs = {};
+        }
+        return {
+          role: "tool" as const,
+          tool_call_id: call.id,
+          content: executeTool(call.function.name, callArgs, pkgRelDir),
+        };
+      });
+      messages.push(...toolResults);
+      continue;
+    }
+
+    // Final response — parse and validate against the Zod schema.
+    const content = choice.message.content ?? "";
     messages.push({ role: "assistant", content });
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
     } catch {
-      if (attempt < MAX_RETRIES) {
-        messages.push({
-          role: "user",
-          content: `Attempt ${attempt + 1} of ${MAX_RETRIES}: your response was not valid JSON. You MUST respond with valid JSON only, exactly matching the schema provided.`,
-        });
-        continue;
+      if (++parseAttempts >= MAX_PARSE_RETRIES) {
+        throw new Error(`Gemini did not return valid JSON after ${MAX_PARSE_RETRIES} attempts`);
       }
-      throw new Error(`Gemini did not return valid JSON after ${MAX_RETRIES} attempts`);
+      messages.push({
+        role: "user",
+        content: `Attempt ${parseAttempts + 1} of ${MAX_PARSE_RETRIES}: your response was not valid JSON. You MUST respond with valid JSON only, exactly matching the schema provided.`,
+      });
+      continue;
     }
 
     const result = GeminiResponseSchema.safeParse(parsed);
     if (!result.success) {
-      if (attempt < MAX_RETRIES) {
-        messages.push({
-          role: "user",
-          content: `Attempt ${attempt + 1} of ${MAX_RETRIES}: your response did not match the required schema. Validation errors:\n${result.error.message}\n\nYou MUST respond with valid JSON exactly matching the schema.`,
-        });
-        continue;
+      if (++parseAttempts >= MAX_PARSE_RETRIES) {
+        throw new Error(
+          `Gemini response failed schema validation after ${MAX_PARSE_RETRIES} attempts: ${result.error.message}`,
+        );
       }
-      throw new Error(
-        `Gemini response failed schema validation after ${MAX_RETRIES} attempts: ${result.error.message}`,
-      );
+      messages.push({
+        role: "user",
+        content: `Attempt ${parseAttempts + 1} of ${MAX_PARSE_RETRIES}: your response did not match the required schema. Validation errors:\n${result.error.message}\n\nYou MUST respond with valid JSON exactly matching the schema.`,
+      });
+      continue;
     }
 
     if (result.data.type === "error") {
@@ -259,8 +445,6 @@ Only src/ changes matter for the bump type. If you cannot complete the analysis,
 
     return result.data;
   }
-
-  throw new Error(`Failed to get a valid response from Gemini after ${MAX_RETRIES} attempts`);
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -301,8 +485,10 @@ async function main() {
       continue;
     }
 
+    const commitLog = getCommitLog(relDir, lastTag);
+
     process.stdout.write(`  ${pkg.name}  analyzing...  `);
-    const analysis = await analyzeWithGemini(pkg, diff);
+    const analysis = await analyzeWithGemini(pkg, diff, commitLog);
 
     if (analysis.bump === "none") {
       console.log(`no release needed`);
