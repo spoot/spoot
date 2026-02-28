@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "engines": {
-    "node": ">=20.x"
+    "node": ">=24.x"
   },
   "scripts": {
     "dev": "pnpm --recursive --parallel --filter='./packages/*' run build:lib --watch",
@@ -11,12 +11,9 @@
     "typecheck": "pnpm --recursive --filter='./packages/*' run typecheck",
     "test": "pnpm --recursive --filter='./packages/*' run test --if-present",
     "check": "pnpm --recursive --filter='./packages/*' run check",
-    "changeset": "changeset",
-    "version-packages": "changeset version",
-    "release": "pnpm build && changeset publish"
+    "release": "node scripts/publish.ts"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.5",
     "@types/node": "^25.3.2",
     "typescript": "^5.8.3"
   },
