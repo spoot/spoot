@@ -32,6 +32,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Restore analysis cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/spoot-release-cache.json
+          key: spoot-release-cache-v1-${{ github.sha }}
+          restore-keys: |
+            spoot-release-cache-v1-
+
       - name: Release
         run: pnpm release
         env:

@@ -24,6 +24,15 @@
  * as separate argv elements via execFileSync (never shell-interpolated) so the
  * remote model cannot inject shell commands.
  *
+ * Packages whose diff since the last tag contains only test files (*.test.ts,
+ * *.spec.ts, __tests__/, jest.config.js, etc.) are skipped outright — no AI
+ * call is made because no runtime behaviour can have changed.
+ *
+ * AI analysis results are cached in ~/.cache/spoot-release-cache.json, keyed
+ * by a SHA256 of (diff + commit log) for each package. In CI the cache file is
+ * restored from the previous run via actions/cache, so repeated commits that
+ * only touch test files don't re-invoke the AI.
+ *
  * Gemini responses are validated against a Zod schema. On invalid JSON or a
  * schema mismatch the script retries up to MAX_PARSE_RETRIES times, appending
  * a correction message each time so the model can self-correct.
@@ -40,7 +49,9 @@
  */
 
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import OpenAI from "openai";
 import { z } from "zod";
@@ -83,6 +94,18 @@ interface ReleaseDecision {
 const ROOT = process.cwd();
 const DRY_RUN = process.env.DRY_RUN === "1";
 const MODEL = process.env.MODEL ?? "gemini-2.5-flash";
+const CACHE_PATH = join(homedir(), ".cache", "spoot-release-cache.json");
+
+// Files matching any of these patterns are considered test-only changes.
+// If ALL changed files in a package match, the package is skipped without
+// any AI call — no runtime behaviour can have changed.
+const TEST_FILE_PATTERNS = [
+  /\.(test|spec)\.[jt]sx?$/,   // *.test.ts, *.spec.tsx, etc.
+  /__tests__\//,                // anything inside __tests__/
+  /jest\.config\.[jt]s$/,
+  /vitest\.config\.[jt]s$/,
+  /\.test-d\.ts$/,              // tsd / type-level tests
+];
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -128,6 +151,25 @@ function getCommitLog(relDir: string, sinceTag: string): string {
   } catch {
     return "";
   }
+}
+
+function getChangedFiles(relDir: string, sinceTag: string): string[] {
+  try {
+    return execFileSync(
+      "git",
+      ["diff", "--name-only", `${sinceTag}..HEAD`, "--", relDir],
+      { cwd: ROOT, encoding: "utf8" },
+    )
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function isTestOnlyChange(files: string[]): boolean {
+  return files.length > 0 && files.every((f) => TEST_FILE_PATTERNS.some((p) => p.test(f)));
 }
 
 // ── package discovery ─────────────────────────────────────────────────────────
@@ -198,6 +240,44 @@ const GeminiResponseSchema = z.discriminatedUnion("type", [
 type GeminiAnalysis = Extract<z.infer<typeof GeminiResponseSchema>, { type: "analysis" }>;
 
 const RESPONSE_SCHEMA = JSON.stringify(GeminiResponseSchema.toJSONSchema(), null, 2);
+
+// ── analysis cache ────────────────────────────────────────────────────────────
+// Results are stored in ~/.cache/spoot-release-cache.json, keyed by a SHA256
+// of the diff + commit log for each package. In CI, actions/cache restores the
+// file from the previous run so repeated test-only commits don't re-invoke the
+// AI at all.
+
+interface CacheEntry {
+  result: GeminiAnalysis;
+  savedAt: string;
+}
+interface CacheFile {
+  v: number;
+  entries: Record<string, CacheEntry>;
+}
+
+function loadCache(): Map<string, GeminiAnalysis> {
+  try {
+    const raw: CacheFile = JSON.parse(readFileSync(CACHE_PATH, "utf8"));
+    if (raw.v !== 1) return new Map();
+    return new Map(Object.entries(raw.entries).map(([k, v]) => [k, v.result]));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveCache(cache: Map<string, GeminiAnalysis>): void {
+  const entries: Record<string, CacheEntry> = {};
+  for (const [k, v] of cache) {
+    entries[k] = { result: v, savedAt: new Date().toISOString() };
+  }
+  mkdirSync(resolve(CACHE_PATH, ".."), { recursive: true });
+  writeFileSync(CACHE_PATH, JSON.stringify({ v: 1, entries }, null, 2));
+}
+
+function diffCacheKey(pkgName: string, diff: string, commitLog: string): string {
+  return `${pkgName}:${createHash("sha256").update(`${diff}\0${commitLog}`).digest("hex")}`;
+}
 
 const MAX_PARSE_RETRIES = 3;
 const MAX_TOOL_ITERATIONS = 20;
@@ -458,6 +538,7 @@ async function main() {
   const packages = getPackages();
   const today = new Date().toISOString().slice(0, 10);
   const decisions = new Map<string, ReleaseDecision>();
+  const cache = loadCache();
 
   if (DRY_RUN) {
     console.log("\n🔍 DRY_RUN — analyzing with Gemini but skipping commit and publish\n");
@@ -490,10 +571,41 @@ async function main() {
       continue;
     }
 
+    // Skip immediately if every changed file is a test / config file — the AI
+    // cannot learn anything new and no runtime behaviour has changed.
+    const changedFiles = getChangedFiles(relDir, lastTag);
+    if (isTestOnlyChange(changedFiles)) {
+      console.log(`  ${pkg.name}  test-only  (${pkg.version})`);
+      continue;
+    }
+
     const commitLog = getCommitLog(relDir, lastTag);
+
+    // Return a cached result if we've already analyzed this exact diff.
+    const cacheKey = diffCacheKey(pkg.name, diff, commitLog);
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      if (cached.bump === "none") {
+        console.log(`  ${pkg.name}  no release needed  [cached]`);
+        continue;
+      }
+      const cachedVersion = bumpVersion(pkg.version, cached.bump);
+      console.log(`  ${pkg.name}  ${cached.bump}  →  ${pkg.version}  →  ${cachedVersion}  [cached]`);
+      console.log(`    ${cached.summary}`);
+      decisions.set(pkg.name, {
+        pkg,
+        bump: cached.bump,
+        newVersion: cachedVersion,
+        changelogEntry: makeChangelogEntry(cachedVersion, cached.summary, cached.details, today),
+        isNew: false,
+      });
+      continue;
+    }
 
     process.stdout.write(`  ${pkg.name}  analyzing...  `);
     const analysis = await analyzeWithGemini(pkg, diff, commitLog);
+    cache.set(cacheKey, analysis);
+    saveCache(cache);
 
     if (analysis.bump === "none") {
       console.log(`no release needed`);
