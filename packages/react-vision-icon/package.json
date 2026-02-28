@@ -1,6 +1,6 @@
 {
   "name": "@spoot/react-vision-icon",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Animated Apple Vision Pro-style icon component for React using RxJS",
   "repository": {
     "type": "git",

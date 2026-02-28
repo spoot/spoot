@@ -1,6 +1,6 @@
 {
   "name": "@spoot/next-url",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Next.js URL utilities: current URL detection and redirect target validation",
   "repository": {
     "type": "git",
