@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.0.0] - 2026-02-28
+
+- The `isProdUrl` function was removed.
+- The `getCurrentUrl` function no longer strips the port from the URL.
+
 ## [2.0.0] - 2026-02-28
 
 - Removed the `isProdUrl` export from the package.
