@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { logger } from "@spoot/log";
-import { getCurrentUrl, isProdUrl } from "@spoot/next-url";
+import { getCurrentUrl } from "@spoot/next-url";
 import { SessionConfig } from "./SessionConfig";
 
 const HOUR_SEC = 60 * 60;
@@ -197,7 +197,7 @@ export class Session {
         httpOnly: true,
         maxAge: COOKIE_TTL,
         sameSite: "lax",
-        secure: isProdUrl(this.currentUrl),
+        secure: this.currentUrl.protocol === "https:",
       });
     }
 

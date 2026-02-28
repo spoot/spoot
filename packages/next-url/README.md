@@ -1,6 +1,6 @@
 # @spoot/next-url
 
-Next.js URL utilities for route handlers and middleware: read the canonical request URL, detect production hostnames, and validate redirect targets to prevent open-redirect vulnerabilities.
+Next.js URL utilities for route handlers and middleware: read the canonical request URL and validate redirect targets to prevent open-redirect vulnerabilities.
 
 ## Install
 
@@ -13,7 +13,7 @@ Requires `next` as a peer dependency.
 ## Usage
 
 ```ts
-import { getCurrentUrl, isProdUrl, getRedirectTarget } from "@spoot/next-url";
+import { getCurrentUrl, getRedirectTarget } from "@spoot/next-url";
 import { type NextRequest, NextResponse } from "next/server";
 
 export function middleware(req: NextRequest) {
@@ -29,7 +29,6 @@ export function middleware(req: NextRequest) {
 ## API
 
 - **`getCurrentUrl(req)`** – Returns a `URL` with the correct `host` from request headers (handles reverse-proxy scenarios).
-- **`isProdUrl(url)`** – Returns `true` when the hostname matches production domains.
 - **`getRedirectTarget(url, paramName?)`** – Reads a redirect URL from a query param and validates it is same-origin. Returns a `NextResponse` (400) on invalid input.
 
 ## Development

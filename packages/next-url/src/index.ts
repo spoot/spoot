@@ -1,16 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-export function isProdUrl(url: URL): boolean {
-  return (
-    url.hostname.endsWith(".cleanplate.studio") ||
-    url.hostname.endsWith(".hhvr.us")
-  );
-}
-
 export function getCurrentUrl(req: NextRequest): URL {
   const url = new URL(req.nextUrl);
   url.host = req.headers.get("host") || url.host;
-  if (isProdUrl(url)) url.port = "";
   return url;
 }
 
