@@ -374,7 +374,8 @@ Only src/ changes matter for the bump type. Use the "error" type if you cannot c
       model: `google-ai-studio/${MODEL}`,
       messages,
       tools: TOOLS,
-      response_format: { type: "json_object" },
+      // response_format cannot be combined with tools on the Cloudflare compat
+      // endpoint. Code fences are stripped before JSON.parse as a fallback.
     });
 
     const choice = response.choices[0];
@@ -408,8 +409,12 @@ Only src/ changes matter for the bump type. Use the "error" type if you cannot c
     }
 
     // Final response — parse and validate against the Zod schema.
-    const content = choice.message.content ?? "";
-    messages.push({ role: "assistant", content });
+    const raw = choice.message.content ?? "";
+    messages.push({ role: "assistant", content: raw });
+
+    // Strip markdown code fences (```json ... ```) that some models add
+    // even when instructed not to, before attempting JSON.parse.
+    const content = raw.replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/m, "$1").trim();
 
     let parsed: unknown;
     try {

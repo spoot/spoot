@@ -9,7 +9,7 @@
     "dev": "pnpm --recursive --parallel --filter='./packages/*' run build:lib --watch",
     "build": "pnpm --recursive --filter='./packages/*' run build:lib",
     "typecheck": "pnpm --recursive --filter='./packages/*' run typecheck",
-    "test": "pnpm --recursive --filter='./packages/*' run test --if-present",
+    "test": "pnpm --recursive --filter='./packages/*' run --if-present test",
     "check": "pnpm --recursive --filter='./packages/*' run check",
     "release": "node scripts/publish.ts"
   },
