@@ -843,13 +843,21 @@ async function main() {
   // 5. Publish ────────────────────────────────────────────────────────────────
   // Publish BEFORE committing to git so a publish failure doesn't leave the
   // git history ahead of npm.
+  //
+  // Strip pnpm-injected npm_config_* env vars before invoking npm directly —
+  // they bleed through from the pnpm parent process and cause "Unknown config"
+  // warnings in npm 10+ (catalog, verify-deps-before-run, _jsr-registry, etc.).
+  const publishEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith("npm_config_")),
+  );
   console.log("\n📤 Publishing to npm...\n");
   for (const [, d] of decisions) {
     console.log(`  ${d.pkg.name}@${d.newVersion}`);
     const provenance = process.env.CI === "true" ? " --provenance" : "";
-    execSync(`pnpm publish --no-git-checks --access public${provenance}`, {
+    execSync(`npm publish --access public${provenance}`, {
       cwd: d.pkg.dir,
       stdio: "inherit",
+      env: publishEnv,
     });
   }
 
