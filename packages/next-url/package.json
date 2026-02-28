@@ -1,0 +1,29 @@
+{
+  "name": "@spoot/next-url",
+  "version": "1.0.0",
+  "description": "Next.js URL utilities: current URL detection and redirect target validation",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spoot/spoot.git",
+    "directory": "packages/next-url"
+  },
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:lib": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck"
+  },
+  "peerDependencies": {
+    "next": "catalog:"
+  },
+  "devDependencies": {
+    "next": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

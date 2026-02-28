@@ -1,0 +1,33 @@
+{
+  "name": "@spoot/react-vision-icon",
+  "version": "1.0.0",
+  "description": "Animated Apple Vision Pro-style icon component for React using RxJS",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spoot/spoot.git",
+    "directory": "packages/react-vision-icon"
+  },
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:lib": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck"
+  },
+  "dependencies": {
+    "@spoot/cn": "workspace:*",
+    "@spoot/rx": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

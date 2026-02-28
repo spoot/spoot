@@ -1,0 +1,23 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Schedule#apply calls map function with existing segments or null for each time segment within the bounds 1`] = `"2020-01-01 -> 2021-01-01: {"number":1}"`;
+
+exports[`Schedule#apply calls map function with existing segments or null for each time segment within the bounds 2`] = `
+"2020-01-01 -> 2020-02-01: {"number":1}
+2020-02-01 -> 2020-03-01: {"number":2}
+2020-03-01 -> 2021-01-01: {"number":1}"
+`;
+
+exports[`Schedule#apply calls map function with existing segments or null for each time segment within the bounds 3`] = `
+"2020-01-01 -> 2020-01-15: {"number":1}
+2020-01-15 -> 2020-02-01: {"number":2}
+2020-02-01 -> 2020-03-01: {"number":3}
+2020-03-01 -> 2020-03-16: {"number":2}
+2020-03-16 -> 2021-01-01: {"number":1}"
+`;
+
+exports[`sliceSegments returns a subset of the segments defined by the bounds 1`] = `
+"2020-01-15 -> 2020-02-01: {}
+2020-02-01 -> 2020-03-01: {}
+2020-03-01 -> 2020-03-15: {}"
+`;

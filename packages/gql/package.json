@@ -1,0 +1,28 @@
+{
+  "name": "@spoot/gql",
+  "version": "1.0.0",
+  "description": "GraphQL query execution helper with Zod schema validation",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spoot/spoot.git",
+    "directory": "packages/gql"
+  },
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:lib": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck"
+  },
+  "dependencies": {
+    "graphql": "^16.11.0",
+    "graphql-tag": "^2.12.6",
+    "zod": "^3.25.67"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

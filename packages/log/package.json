@@ -1,0 +1,23 @@
+{
+  "name": "@spoot/log",
+  "version": "1.0.0",
+  "description": "Simple structured logger for Node.js with newline-safe output",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spoot/spoot.git",
+    "directory": "packages/log"
+  },
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:lib": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

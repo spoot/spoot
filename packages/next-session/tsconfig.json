@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "incremental": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "importsNotUsedAsValues": "remove",
+    "outDir": "dist"
+  },
+  "references": [
+    { "path": "../log/tsconfig.json" },
+    { "path": "../next-url/tsconfig.json" }
+  ]
+}

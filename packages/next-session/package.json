@@ -1,0 +1,30 @@
+{
+  "name": "@spoot/next-session",
+  "version": "1.0.0",
+  "description": "Encrypted cookie sessions for Next.js using iron-session with Zod validation",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spoot/spoot.git",
+    "directory": "packages/next-session"
+  },
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:lib": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck"
+  },
+  "dependencies": {
+    "@spoot/log": "workspace:*",
+    "iron-session": "^8.0.4",
+    "next": "catalog:",
+    "zod": "^3.25.67",
+    "@spoot/next-url": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

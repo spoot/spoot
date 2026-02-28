@@ -1,0 +1,27 @@
+{
+  "name": "@spoot/cn",
+  "version": "1.0.0",
+  "description": "Utility for merging Tailwind CSS class names with clsx and tailwind-merge",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spoot/spoot.git",
+    "directory": "packages/cn"
+  },
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:lib": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.6.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

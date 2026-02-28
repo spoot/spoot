@@ -1,0 +1,29 @@
+{
+  "name": "@spoot/day",
+  "version": "1.0.0",
+  "description": "Date utilities: type-safe Day, Week, Month, and CalendarWeek abstractions",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spoot/spoot.git",
+    "directory": "packages/day"
+  },
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:lib": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

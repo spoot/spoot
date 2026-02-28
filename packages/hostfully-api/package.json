@@ -1,0 +1,31 @@
+{
+  "name": "@spoot/hostfully-api",
+  "version": "1.0.0",
+  "description": "TypeScript client for the Hostfully property management GraphQL API",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spoot/spoot.git",
+    "directory": "packages/hostfully-api"
+  },
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:lib": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck"
+  },
+  "dependencies": {
+    "@spoot/day": "workspace:*",
+    "@spoot/gql": "workspace:*",
+    "@spoot/rx": "workspace:*",
+    "@spoot/schedule": "workspace:*",
+    "dotenv": "^16.6.1",
+    "zod": "^3.25.67"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

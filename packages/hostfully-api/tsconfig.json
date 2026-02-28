@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "importsNotUsedAsValues": "remove",
+    "outDir": "dist"
+  },
+  "references": [
+    { "path": "../gql/tsconfig.json" },
+    { "path": "../schedule/tsconfig.json" }
+  ]
+}

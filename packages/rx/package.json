@@ -1,0 +1,26 @@
+{
+  "name": "@spoot/rx",
+  "version": "1.0.0",
+  "description": "RxJS utilities and namespace re-exports for reactive programming",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spoot/spoot.git",
+    "directory": "packages/rx"
+  },
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:lib": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck"
+  },
+  "dependencies": {
+    "rxjs": "^7.8.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

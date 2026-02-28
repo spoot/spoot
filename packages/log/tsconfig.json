@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "importsNotUsedAsValues": "remove",
+    "outDir": "dist"
+  },
+  "references": []
+}
