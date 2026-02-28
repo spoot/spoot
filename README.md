@@ -59,18 +59,18 @@ pnpm build:lib
 
 ## Publishing
 
-Packages are published automatically via GitHub Actions when changes land on `main`. The release script (`scripts/publish.ts`) diffs each package against its last git tag, sends the diff to Gemini via Cloudflare AI Gateway to determine the right semver bump, then updates changelogs, commits the version bump, and publishes to npm.
+Packages are published automatically via GitHub Actions when changes land on `main`. The release script (`scripts/publish.ts`) queries npm for each package's published versions, diffs from the baseline commit against `HEAD`, sends the diff to Gemini via Cloudflare AI Gateway to determine the right semver bump, then builds, publishes to npm, and finally commits the version bump with git tags.
 
 Just push to `main` — no manual version bumping or changeset files needed.
 
 ### How a release works
 
-1. For each package, the script finds the last git tag (e.g. `@spoot/day@1.0.0`)
-2. Diffs that tag against `HEAD` for that package directory
-3. Asks Gemini to classify the change as `major`, `minor`, `patch`, or `none`
-4. Cascades patch bumps to any package whose runtime dependency is releasing
-5. Updates `CHANGELOG.md` and `package.json` for each affected package
-6. Commits with `[skip ci]`, creates git tags, pushes, then publishes to npm
+1. For each package, the script queries npm for published versions and finds the matching commit in git history — that's the baseline
+2. Diffs the baseline against `HEAD` for that package directory
+3. Skips packages with only test-file changes (no runtime impact)
+4. Asks Gemini to classify the change as `major`, `minor`, `patch`, or `none`
+5. Cascades patch bumps to any package whose runtime dependency is releasing
+6. Builds all packages, publishes to npm with provenance, then commits + tags + pushes
 
 ### Running locally
 
@@ -101,14 +101,7 @@ Add these secrets to the repository (**Settings › Secrets and variables › Ac
 | `CF_AI_GATEWAY_URL` | Same as above |
 | `CF_AI_GATEWAY_TOKEN` | Same as above |
 
-CI publishes via **npm OIDC** — no stored npm token required. The workflow requests a short-lived OIDC token via the `id-token: write` permission and passes `--provenance` to `pnpm publish`. To enable this, configure npm to trust the GitHub Actions OIDC provider for the `@spoot` scope:
-
-```sh
-npm access grant read-write npm:@spoot --otp <code>
-npm trust github.com/spoot/spoot
-```
-
-Or configure it in the npm web UI under **Account › Packages › @spoot › Settings › Provenance**.
+CI publishes via **npm OIDC trusted publishing** — no stored npm token required. For each package, enable trusted publishing in the npm web UI: go to the package page → **Settings** → add a trusted publisher for `spoot/spoot` using workflow `release.yml`. This allows the workflow's `id-token: write` OIDC token to authenticate with npm directly.
 
 The release workflow also needs **Settings › Actions › General › Workflow permissions** set to **Read and write permissions** so it can push the version-bump commit back to `main`.
 
