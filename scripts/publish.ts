@@ -123,11 +123,12 @@ function requireEnv(name: string): string {
 // ── git helpers ───────────────────────────────────────────────────────────────
 
 function git(args: string, opts?: { stdio?: "inherit" }): string {
-  return execSync(`git ${args}`, {
+  const result = execSync(`git ${args}`, {
     cwd: ROOT,
     encoding: "utf8",
     stdio: opts?.stdio ?? ["pipe", "pipe", "pipe"],
-  }).trim();
+  });
+  return result ? result.trim() : "";
 }
 
 // ── npm registry helpers ──────────────────────────────────────────────────────
