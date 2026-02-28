@@ -130,12 +130,37 @@ function git(args: string, opts?: { stdio?: "inherit" }): string {
   }).trim();
 }
 
-// Find the oldest commit in history where this package's package.json already
-// carried `version`.  Walking backwards from HEAD, we keep advancing as long
-// as each successive commit still shows the same version; the last one we
-// accept is the "introduction" commit — i.e. the publish commit that set this
-// version.  Returns null only if the package has never been committed at all.
-function getVersionIntroCommit(relDir: string, version: string): string | null {
+// ── npm registry helpers ──────────────────────────────────────────────────────
+
+// Return the set of versions already published to npm for a given package.
+// Returns an empty set if the package doesn't exist yet or the registry is
+// unreachable.
+function getPublishedVersions(pkgName: string): Set<string> {
+  try {
+    const out = execFileSync(
+      "npm", ["view", pkgName, "versions", "--json"],
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    const parsed: unknown = JSON.parse(out);
+    if (typeof parsed === "string") return new Set([parsed]);
+    if (Array.isArray(parsed)) return new Set(parsed as string[]);
+    return new Set();
+  } catch {
+    return new Set(); // not published yet, or registry unreachable
+  }
+}
+
+// Walk git log for the package's package.json from newest commit to oldest.
+// Stop at the first commit whose version is already on the npm registry —
+// that is the published baseline.  Everything between that commit and HEAD
+// is unreleased work.  Returns null if no published version appears in history
+// (the package is genuinely new).
+function getPublishedBaselineCommit(
+  relDir: string,
+  published: Set<string>,
+): string | null {
+  if (published.size === 0) return null;
+
   const shas = execFileSync(
     "git",
     ["log", "--format=%H", "--", `${relDir}/package.json`],
@@ -145,7 +170,6 @@ function getVersionIntroCommit(relDir: string, version: string): string | null {
     .split("\n")
     .filter(Boolean);
 
-  let introCommit: string | null = null;
   for (const sha of shas) {
     try {
       const pkg: PackageJson = JSON.parse(
@@ -154,16 +178,12 @@ function getVersionIntroCommit(relDir: string, version: string): string | null {
           encoding: "utf8",
         }),
       );
-      if (pkg.version === version) {
-        introCommit = sha; // keep walking back to find the oldest commit with this version
-      } else {
-        break; // version was different here — stop
-      }
+      if (published.has(pkg.version)) return sha;
     } catch {
       break; // package.json didn't exist at this commit
     }
   }
-  return introCommit;
+  return null;
 }
 
 function getDiff(relDir: string, since: string): string {
@@ -587,15 +607,16 @@ async function main() {
   for (const pkg of packages) {
     const relDir = pkg.dir.slice(ROOT.length + 1);
 
-    // Find the commit where the current version was first introduced in git
-    // history.  That commit is the publish baseline — everything after it is
-    // unreleased work.  If no commit is found the package has never been
-    // committed, so treat it as a brand-new first publish.
-    const sinceCommit = getVersionIntroCommit(relDir, pkg.version);
+    // Check npm for what's already published, then find the matching commit in
+    // git history.  That commit is the published baseline — everything between
+    // it and HEAD is unreleased work.
+    process.stdout.write(`  ${pkg.name}  checking registry...  `);
+    const published = getPublishedVersions(pkg.name);
+    const sinceCommit = getPublishedBaselineCommit(relDir, published);
 
     if (!sinceCommit) {
-      // Package not yet in git history — first-ever publish at current version.
-      console.log(`  ${pkg.name}  NEW  →  ${pkg.version}`);
+      // No published version found in git history — first-ever publish.
+      console.log(`NEW  →  ${pkg.version}`);
       decisions.set(pkg.name, {
         pkg,
         bump: "patch",
@@ -609,7 +630,7 @@ async function main() {
     const diff = getDiff(relDir, sinceCommit);
 
     if (!diff.trim()) {
-      console.log(`  ${pkg.name}  unchanged  (${pkg.version})`);
+      console.log(`unchanged  (${pkg.version})`);
       continue;
     }
 
@@ -617,7 +638,7 @@ async function main() {
     // cannot learn anything new and no runtime behaviour has changed.
     const changedFiles = getChangedFiles(relDir, sinceCommit);
     if (isTestOnlyChange(changedFiles)) {
-      console.log(`  ${pkg.name}  test-only  (${pkg.version})`);
+      console.log(`test-only  (${pkg.version})`);
       continue;
     }
 
@@ -628,11 +649,11 @@ async function main() {
     const cached = cache.get(cacheKey);
     if (cached) {
       if (cached.bump === "none") {
-        console.log(`  ${pkg.name}  no release needed  [cached]`);
+        console.log(`no release needed  [cached]`);
         continue;
       }
       const cachedVersion = bumpVersion(pkg.version, cached.bump);
-      console.log(`  ${pkg.name}  ${cached.bump}  →  ${pkg.version}  →  ${cachedVersion}  [cached]`);
+      console.log(`${cached.bump}  →  ${pkg.version}  →  ${cachedVersion}  [cached]`);
       console.log(`    ${cached.summary}`);
       decisions.set(pkg.name, {
         pkg,
@@ -644,7 +665,7 @@ async function main() {
       continue;
     }
 
-    process.stdout.write(`  ${pkg.name}  analyzing...  `);
+    process.stdout.write(`analyzing...  `);
     const analysis = await analyzeWithGemini(pkg, diff, commitLog);
     cache.set(cacheKey, analysis);
     saveCache(cache);
