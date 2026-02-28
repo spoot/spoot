@@ -583,7 +583,8 @@ async function main() {
 
   for (const [, d] of decisions) {
     const tag = `${d.pkg.name}@${d.newVersion}`;
-    git(`tag ${tag}`);
+    // Annotated tags are required for --follow-tags to include them in the push.
+    execFileSync("git", ["tag", "-a", tag, "-m", tag], { cwd: ROOT });
     console.log(`  Tagged: ${tag}`);
   }
 
