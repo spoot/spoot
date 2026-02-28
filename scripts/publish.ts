@@ -3,10 +3,17 @@
  * Run with: node scripts/publish.ts
  *
  * For each package:
- *   - If never published (no git tag): publish at current version, no AI needed
- *   - If previously published and changed: ask Gemini to determine the version
- *     bump type, then bump version, update CHANGELOG, commit, tag, and publish
- *   - If previously published and unchanged: skip
+ *   - Finds the oldest commit in git history where package.json already
+ *     carries the current version.  That commit is the publish baseline.
+ *   - If nothing has changed since that commit: skip.
+ *   - If something changed: ask Gemini to determine the version bump type,
+ *     then bump version, update CHANGELOG, commit, tag, and publish.
+ *   - If no baseline commit exists (truly new package): publish at current
+ *     version with no AI analysis needed.
+ *
+ * Tags are still created and pushed after each release so the git history
+ * stays annotated, but they are not relied on for change detection — the
+ * version field in package.json and the git log are the source of truth.
  *
  * Inter-package dependency cascades: when a package releases, its dependents
  * that haven't changed independently receive a patch bump so their published
@@ -123,29 +130,59 @@ function git(args: string, opts?: { stdio?: "inherit" }): string {
   }).trim();
 }
 
-function getLastTag(packageName: string): string | null {
-  const tags = git(`tag -l "${packageName}@*" --sort=-version:refname`)
+// Find the oldest commit in history where this package's package.json already
+// carried `version`.  Walking backwards from HEAD, we keep advancing as long
+// as each successive commit still shows the same version; the last one we
+// accept is the "introduction" commit — i.e. the publish commit that set this
+// version.  Returns null only if the package has never been committed at all.
+function getVersionIntroCommit(relDir: string, version: string): string | null {
+  const shas = execFileSync(
+    "git",
+    ["log", "--format=%H", "--", `${relDir}/package.json`],
+    { cwd: ROOT, encoding: "utf8" },
+  )
+    .trim()
     .split("\n")
     .filter(Boolean);
-  return tags[0] ?? null;
+
+  let introCommit: string | null = null;
+  for (const sha of shas) {
+    try {
+      const pkg: PackageJson = JSON.parse(
+        execFileSync("git", ["show", `${sha}:${relDir}/package.json`], {
+          cwd: ROOT,
+          encoding: "utf8",
+        }),
+      );
+      if (pkg.version === version) {
+        introCommit = sha; // keep walking back to find the oldest commit with this version
+      } else {
+        break; // version was different here — stop
+      }
+    } catch {
+      break; // package.json didn't exist at this commit
+    }
+  }
+  return introCommit;
 }
 
-function getDiff(relDir: string, sinceTag: string): string {
+function getDiff(relDir: string, since: string): string {
   try {
-    return execSync(`git diff ${sinceTag}..HEAD -- ${relDir}`, {
-      cwd: ROOT,
-      encoding: "utf8",
-    });
+    return execFileSync(
+      "git",
+      ["diff", `${since}..HEAD`, "--", relDir],
+      { cwd: ROOT, encoding: "utf8" },
+    );
   } catch {
     return "";
   }
 }
 
-function getCommitLog(relDir: string, sinceTag: string): string {
+function getCommitLog(relDir: string, since: string): string {
   try {
     return execFileSync(
       "git",
-      ["log", `${sinceTag}..HEAD`, "--format=%s%n%b", "--", relDir],
+      ["log", `${since}..HEAD`, "--format=%s%n%b", "--", relDir],
       { cwd: ROOT, encoding: "utf8" },
     ).trim();
   } catch {
@@ -153,11 +190,11 @@ function getCommitLog(relDir: string, sinceTag: string): string {
   }
 }
 
-function getChangedFiles(relDir: string, sinceTag: string): string[] {
+function getChangedFiles(relDir: string, since: string): string[] {
   try {
     return execFileSync(
       "git",
-      ["diff", "--name-only", `${sinceTag}..HEAD`, "--", relDir],
+      ["diff", "--name-only", `${since}..HEAD`, "--", relDir],
       { cwd: ROOT, encoding: "utf8" },
     )
       .trim()
@@ -548,10 +585,16 @@ async function main() {
   console.log(`📦 Analyzing ${packages.length} packages...\n`);
 
   for (const pkg of packages) {
-    const lastTag = getLastTag(pkg.name);
+    const relDir = pkg.dir.slice(ROOT.length + 1);
 
-    if (!lastTag) {
-      // First-ever publish — no diff to analyze, use current version as-is
+    // Find the commit where the current version was first introduced in git
+    // history.  That commit is the publish baseline — everything after it is
+    // unreleased work.  If no commit is found the package has never been
+    // committed, so treat it as a brand-new first publish.
+    const sinceCommit = getVersionIntroCommit(relDir, pkg.version);
+
+    if (!sinceCommit) {
+      // Package not yet in git history — first-ever publish at current version.
       console.log(`  ${pkg.name}  NEW  →  ${pkg.version}`);
       decisions.set(pkg.name, {
         pkg,
@@ -563,8 +606,7 @@ async function main() {
       continue;
     }
 
-    const relDir = pkg.dir.slice(ROOT.length + 1);
-    const diff = getDiff(relDir, lastTag);
+    const diff = getDiff(relDir, sinceCommit);
 
     if (!diff.trim()) {
       console.log(`  ${pkg.name}  unchanged  (${pkg.version})`);
@@ -573,13 +615,13 @@ async function main() {
 
     // Skip immediately if every changed file is a test / config file — the AI
     // cannot learn anything new and no runtime behaviour has changed.
-    const changedFiles = getChangedFiles(relDir, lastTag);
+    const changedFiles = getChangedFiles(relDir, sinceCommit);
     if (isTestOnlyChange(changedFiles)) {
       console.log(`  ${pkg.name}  test-only  (${pkg.version})`);
       continue;
     }
 
-    const commitLog = getCommitLog(relDir, lastTag);
+    const commitLog = getCommitLog(relDir, sinceCommit);
 
     // Return a cached result if we've already analyzed this exact diff.
     const cacheKey = diffCacheKey(pkg.name, diff, commitLog);
