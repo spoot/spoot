@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write  # push version-bump commits and tags
+      id-token: write  # request OIDC token for npm provenance publishing
 
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +28,6 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          # Writes ~/.npmrc with NODE_AUTH_TOKEN interpolation for pnpm publish
-          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -38,7 +37,6 @@ jobs:
         env:
           CF_AI_GATEWAY_URL: ${{ secrets.CF_AI_GATEWAY_URL }}
           CF_AI_GATEWAY_TOKEN: ${{ secrets.CF_AI_GATEWAY_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           # Git identity for the version-bump commit
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com

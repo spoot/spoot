@@ -84,7 +84,8 @@ cp .env.local.example .env.local
 |---|---|
 | `CF_AI_GATEWAY_URL` | Cloudflare AI Gateway base URL — find it in the Cloudflare dashboard under **AI › AI Gateway** |
 | `CF_AI_GATEWAY_TOKEN` | Bearer token for your gateway |
-| `NODE_AUTH_TOKEN` | npm token with publish access to the `@spoot` scope ([create one here](https://www.npmjs.com/settings/tokens)) |
+
+For npm auth, run `npm login` once before your first local publish. The credentials are stored by npm and reused on subsequent runs.
 
 ```sh
 DRY_RUN=1 pnpm release   # full Gemini analysis, prints plan, no publish
@@ -99,7 +100,15 @@ Add these secrets to the repository (**Settings › Secrets and variables › Ac
 |---|---|
 | `CF_AI_GATEWAY_URL` | Same as above |
 | `CF_AI_GATEWAY_TOKEN` | Same as above |
-| `NPM_TOKEN` | npm automation token with publish access to `@spoot` |
+
+CI publishes via **npm OIDC** — no stored npm token required. The workflow requests a short-lived OIDC token via the `id-token: write` permission and passes `--provenance` to `pnpm publish`. To enable this, configure npm to trust the GitHub Actions OIDC provider for the `@spoot` scope:
+
+```sh
+npm access grant read-write npm:@spoot --otp <code>
+npm trust github.com/spoot/spoot
+```
+
+Or configure it in the npm web UI under **Account › Packages › @spoot › Settings › Provenance**.
 
 The release workflow also needs **Settings › Actions › General › Workflow permissions** set to **Read and write permissions** so it can push the version-bump commit back to `main`.
 

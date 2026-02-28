@@ -19,7 +19,6 @@
  *   CF_AI_GATEWAY_URL    Cloudflare AI Gateway base URL
  *                        e.g. https://gateway.ai.cloudflare.com/v1/acct/gw
  *   CF_AI_GATEWAY_TOKEN  Bearer token (cf-aig-authorization)
- *   NODE_AUTH_TOKEN      npm publish token
  *
  * Optional:
  *   DRY_RUN=1  Run the full AI analysis and print the release plan,
@@ -374,7 +373,8 @@ async function main() {
   console.log("\n📤 Publishing to npm...\n");
   for (const [, d] of decisions) {
     console.log(`  ${d.pkg.name}@${d.newVersion}`);
-    execSync("pnpm publish --no-git-checks --access public", {
+    const provenance = process.env.CI === "true" ? " --provenance" : "";
+    execSync(`pnpm publish --no-git-checks --access public${provenance}`, {
       cwd: d.pkg.dir,
       stdio: "inherit",
     });
