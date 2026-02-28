@@ -22,7 +22,10 @@ importers:
     dependencies:
       openai:
         specifier: ^6.25.0
-        version: 6.25.0(zod@3.25.76)
+        version: 6.25.0(zod@4.3.6)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -1643,6 +1646,9 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+
 snapshots:
 
   '@babel/code-frame@7.29.0':
@@ -3007,9 +3013,9 @@ snapshots:
     dependencies:
       mimic-fn: 2.1.0
 
-  openai@6.25.0(zod@3.25.76):
+  openai@6.25.0(zod@4.3.6):
     optionalDependencies:
-      zod: 3.25.76
+      zod: 4.3.6
 
   p-limit@2.3.0:
     dependencies:
@@ -3304,3 +3310,5 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   zod@3.25.76: {}
+
+  zod@4.3.6: {}

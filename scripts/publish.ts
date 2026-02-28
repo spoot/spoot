@@ -15,6 +15,10 @@
  * Credentials are loaded from .env.local when present (local dev), and from
  * environment variables in CI. See .env.local.example for the required vars.
  *
+ * Gemini responses are validated against a Zod schema. On invalid JSON or a
+ * schema mismatch the script retries up to MAX_RETRIES times, appending a
+ * reminder message each time so the model can self-correct.
+ *
  * Required env vars:
  *   CF_AI_GATEWAY_URL    Cloudflare AI Gateway base URL
  *                        e.g. https://gateway.ai.cloudflare.com/v1/acct/gw
@@ -30,6 +34,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import OpenAI from "openai";
+import { z } from "zod";
 
 // Load .env.local for local development (ignored by git, never present in CI)
 if (existsSync(join(process.cwd(), ".env.local"))) {
@@ -38,7 +43,8 @@ if (existsSync(join(process.cwd(), ".env.local"))) {
 
 // ── types ────────────────────────────────────────────────────────────────────
 
-type BumpType = "major" | "minor" | "patch" | "none";
+const BumpTypeSchema = z.enum(["major", "minor", "patch", "none"]);
+type BumpType = z.infer<typeof BumpTypeSchema>;
 
 interface PackageJson {
   name: string;
@@ -53,12 +59,6 @@ interface Pkg {
   dir: string;
   pkgPath: string;
   json: PackageJson;
-}
-
-interface GeminiAnalysis {
-  bump: BumpType;
-  summary: string;
-  details: string[];
 }
 
 interface ReleaseDecision {
@@ -161,13 +161,32 @@ function prependChangelog(pkgDir: string, entry: string): void {
 
 // ── gemini via cloudflare ai gateway ─────────────────────────────────────────
 
+const GeminiResponseSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("analysis"),
+    bump: BumpTypeSchema,
+    summary: z.string().describe("One-line summary of changes in past tense"),
+    details: z.array(z.string()).describe("List of specific changes"),
+  }),
+  z.object({
+    type: z.literal("error"),
+    message: z.string().describe("Explanation of why analysis could not be completed"),
+  }),
+]);
+
+type GeminiAnalysis = Extract<z.infer<typeof GeminiResponseSchema>, { type: "analysis" }>;
+
+const RESPONSE_SCHEMA = JSON.stringify(GeminiResponseSchema.toJSONSchema(), null, 2);
+
+const MAX_RETRIES = 3;
+
 async function analyzeWithGemini(pkg: Pkg, diff: string): Promise<GeminiAnalysis> {
   const client = new OpenAI({
     apiKey: requireEnv("CF_AI_GATEWAY_TOKEN"),
     baseURL: `${requireEnv("CF_AI_GATEWAY_URL").replace(/\/$/, "")}/compat`,
   });
 
-  const prompt = `
+  const initialMessage = `
 You are a semantic versioning expert analyzing a git diff for an npm package.
 
 Package: ${pkg.name}
@@ -178,36 +197,70 @@ Git diff since last release:
 ${diff.slice(0, 30_000)}
 \`\`\`
 
-Determine the appropriate semantic version bump. Respond with valid JSON only, no markdown:
-{
-  "bump": "major" | "minor" | "patch" | "none",
-  "summary": "One-line summary of the changes (past tense)",
-  "details": ["Specific change", "Another change"]
-}
+Determine the appropriate semantic version bump. Respond with valid JSON only — no markdown, no code fences.
+Your response MUST conform to this JSON schema:
 
-Rules:
+${RESPONSE_SCHEMA}
+
+Rules for the "analysis" type:
 - "major": Breaking API changes — removed/renamed exports, changed signatures
 - "minor": New features, new exports, backward-compatible API additions
 - "patch": Bug fixes, perf improvements, internal refactoring with no API change
 - "none": Only test files, README, CI config, or whitespace — no runtime change
 
-Only src/ changes matter for the bump type.
+Only src/ changes matter for the bump type. If you cannot complete the analysis, respond with the "error" type.
 `.trim();
 
-  const response = await client.chat.completions.create({
-    model: `google-ai-studio/${MODEL}`,
-    messages: [{ role: "user", content: prompt }],
-    response_format: { type: "json_object" },
-  });
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "user", content: initialMessage },
+  ];
 
-  const text = response.choices[0]?.message.content ?? "{}";
-  const result = JSON.parse(text) as GeminiAnalysis;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const response = await client.chat.completions.create({
+      model: `google-ai-studio/${MODEL}`,
+      messages,
+      response_format: { type: "json_object" },
+    });
 
-  if (!["major", "minor", "patch", "none"].includes(result.bump)) {
-    throw new Error(`Unexpected bump value from Gemini: ${JSON.stringify(result)}`);
+    const content = response.choices[0]?.message.content ?? "";
+    messages.push({ role: "assistant", content });
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        messages.push({
+          role: "user",
+          content: `Attempt ${attempt + 1} of ${MAX_RETRIES}: your response was not valid JSON. You MUST respond with valid JSON only, exactly matching the schema provided.`,
+        });
+        continue;
+      }
+      throw new Error(`Gemini did not return valid JSON after ${MAX_RETRIES} attempts`);
+    }
+
+    const result = GeminiResponseSchema.safeParse(parsed);
+    if (!result.success) {
+      if (attempt < MAX_RETRIES) {
+        messages.push({
+          role: "user",
+          content: `Attempt ${attempt + 1} of ${MAX_RETRIES}: your response did not match the required schema. Validation errors:\n${result.error.message}\n\nYou MUST respond with valid JSON exactly matching the schema.`,
+        });
+        continue;
+      }
+      throw new Error(
+        `Gemini response failed schema validation after ${MAX_RETRIES} attempts: ${result.error.message}`,
+      );
+    }
+
+    if (result.data.type === "error") {
+      throw new Error(`Gemini could not analyze ${pkg.name}: ${result.data.message}`);
+    }
+
+    return result.data;
   }
 
-  return result;
+  throw new Error(`Failed to get a valid response from Gemini after ${MAX_RETRIES} attempts`);
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
