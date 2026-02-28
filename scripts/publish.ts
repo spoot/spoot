@@ -36,7 +36,7 @@
  * Optional:
  *   DRY_RUN=1  Run the full AI analysis and print the release plan,
  *              but skip writing files, committing, and publishing.
- *   MODEL      Gemini model to use (default: gemini-2.0-flash)
+ *   MODEL      Gemini model to use (default: gemini-2.5-flash)
  */
 
 import { execFileSync, execSync } from "node:child_process";
@@ -82,7 +82,7 @@ interface ReleaseDecision {
 
 const ROOT = process.cwd();
 const DRY_RUN = process.env.DRY_RUN === "1";
-const MODEL = process.env.MODEL ?? "gemini-2.0-flash";
+const MODEL = process.env.MODEL ?? "gemini-2.5-flash";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
