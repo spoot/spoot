@@ -1,1 +1,3 @@
 When working on a new feature start a new branch based on main, commit often, and push the changes automatically to the remote branch. When the task is ready for the user to review create a PR automatically from that branch. Use the `gh` command line tool to interact with the github pull request system, set a meaningful title and description for the PR and let the user know the URL of the newly created PR. Once a PR exists make sure to update the title and description when the changes in the PR are updated substantially.
+
+When making changes that affect how a developer sets up, configures, or works with this repository — including environment variables, secrets, tooling, scripts, or CI/CD — update README.md to reflect those changes.

@@ -20,7 +20,7 @@ A monorepo of shared TypeScript packages published to npm under the `@spoot` sco
 
 ## Requirements
 
-- [Node.js](https://nodejs.org) ≥ 20
+- [Node.js](https://nodejs.org) ≥ 24
 - [pnpm](https://pnpm.io) ≥ 10
 
 ## Setup
@@ -59,23 +59,49 @@ pnpm build:lib
 
 ## Publishing
 
-Packages are published automatically via GitHub Actions when changes land on `main`.
+Packages are published automatically via GitHub Actions when changes land on `main`. The release script (`scripts/publish.ts`) diffs each package against its last git tag, sends the diff to Gemini via Cloudflare AI Gateway to determine the right semver bump, then updates changelogs, commits the version bump, and publishes to npm.
 
-To describe your changes and trigger a release:
+Just push to `main` — no manual version bumping or changeset files needed.
+
+### How a release works
+
+1. For each package, the script finds the last git tag (e.g. `@spoot/day@1.0.0`)
+2. Diffs that tag against `HEAD` for that package directory
+3. Asks Gemini to classify the change as `major`, `minor`, `patch`, or `none`
+4. Cascades patch bumps to any package whose runtime dependency is releasing
+5. Updates `CHANGELOG.md` and `package.json` for each affected package
+6. Commits with `[skip ci]`, creates git tags, pushes, then publishes to npm
+
+### Running locally
+
+Copy `.env.local.example` to `.env.local` and fill in your credentials (the file is gitignored):
 
 ```sh
-pnpm changeset       # describe what changed and the semver bump
-git add .changeset
-git commit -m "chore: add changeset"
-git push
+cp .env.local.example .env.local
 ```
 
-When the resulting **"Version Packages"** PR is merged, the CI pipeline will:
+| Variable | Description |
+|---|---|
+| `CF_AI_GATEWAY_URL` | Cloudflare AI Gateway base URL — find it in the Cloudflare dashboard under **AI › AI Gateway** |
+| `CF_AI_GATEWAY_TOKEN` | Bearer token for your gateway |
+| `NODE_AUTH_TOKEN` | npm token with publish access to the `@spoot` scope ([create one here](https://www.npmjs.com/settings/tokens)) |
 
-1. Bump versions in `package.json` based on changeset files
-2. Update `CHANGELOG.md` for each changed package
-3. Commit the version bump and create git tags
-4. Publish the updated packages to npm
+```sh
+DRY_RUN=1 pnpm release   # full Gemini analysis, prints plan, no publish
+pnpm release              # full release
+```
+
+### GitHub Actions secrets
+
+Add these secrets to the repository (**Settings › Secrets and variables › Actions**):
+
+| Secret | Value |
+|---|---|
+| `CF_AI_GATEWAY_URL` | Same as above |
+| `CF_AI_GATEWAY_TOKEN` | Same as above |
+| `NPM_TOKEN` | npm automation token with publish access to `@spoot` |
+
+The release workflow also needs **Settings › Actions › General › Workflow permissions** set to **Read and write permissions** so it can push the version-bump commit back to `main`.
 
 ## License
 
