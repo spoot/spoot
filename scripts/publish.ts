@@ -12,22 +12,29 @@
  * that haven't changed independently receive a patch bump so their published
  * package.json references the correct dep version.
  *
- * Required env vars (for publishing):
+ * Credentials are loaded from .env.local when present (local dev), and from
+ * environment variables in CI. See .env.local.example for the required vars.
+ *
+ * Required env vars:
  *   CF_AI_GATEWAY_URL    Cloudflare AI Gateway base URL
  *                        e.g. https://gateway.ai.cloudflare.com/v1/acct/gw
  *   CF_AI_GATEWAY_TOKEN  Bearer token (cf-aig-authorization)
  *   NODE_AUTH_TOKEN      npm publish token
  *
  * Optional:
- *   DRY_RUN=1  Analyze and print the release plan without committing or publishing.
- *              CF_ credentials are optional in this mode — omitting them will
- *              skip AI analysis and just show which packages have changed.
+ *   DRY_RUN=1  Run the full AI analysis and print the release plan,
+ *              but skip writing files, committing, and publishing.
  *   MODEL      Gemini model to use (default: gemini-2.0-flash)
  */
 
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+// Load .env.local for local development (ignored by git, never present in CI)
+if (existsSync(join(process.cwd(), ".env.local"))) {
+  process.loadEnvFile(".env.local");
+}
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -67,6 +74,12 @@ interface ReleaseDecision {
 const ROOT = process.cwd();
 const DRY_RUN = process.env.DRY_RUN === "1";
 const MODEL = process.env.MODEL ?? "gemini-2.0-flash";
+
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing required env var: ${name}`);
+  return v;
+}
 
 // ── git helpers ───────────────────────────────────────────────────────────────
 
@@ -148,21 +161,9 @@ function prependChangelog(pkgDir: string, entry: string): void {
 
 // ── gemini via cloudflare ai gateway ─────────────────────────────────────────
 
-/**
- * Returns null when credentials are absent and DRY_RUN is true —
- * callers treat this as "changed, bump type unknown".
- */
-async function analyzeWithGemini(pkg: Pkg, diff: string): Promise<GeminiAnalysis | null> {
-  const gatewayUrl = process.env.CF_AI_GATEWAY_URL;
-  const gatewayToken = process.env.CF_AI_GATEWAY_TOKEN;
-
-  if (!gatewayUrl || !gatewayToken) {
-    if (DRY_RUN) return null;
-    throw new Error(
-      "CF_AI_GATEWAY_URL and CF_AI_GATEWAY_TOKEN must be set to publish. " +
-        "Use DRY_RUN=1 to preview changes without credentials.",
-    );
-  }
+async function analyzeWithGemini(pkg: Pkg, diff: string): Promise<GeminiAnalysis> {
+  const gatewayUrl = requireEnv("CF_AI_GATEWAY_URL");
+  const gatewayToken = requireEnv("CF_AI_GATEWAY_TOKEN");
 
   const endpoint =
     `${gatewayUrl.replace(/\/$/, "")}/google-ai-studio/v1beta/models/${MODEL}:generateContent`;
@@ -230,14 +231,9 @@ async function main() {
   const packages = getPackages();
   const today = new Date().toISOString().slice(0, 10);
   const decisions = new Map<string, ReleaseDecision>();
-  const hasCredentials = !!(process.env.CF_AI_GATEWAY_URL && process.env.CF_AI_GATEWAY_TOKEN);
 
   if (DRY_RUN) {
-    console.log(
-      hasCredentials
-        ? "\n🔍 DRY_RUN — analyzing with Gemini but skipping commit and publish\n"
-        : "\n🔍 DRY_RUN — no credentials, skipping AI analysis (showing changed packages only)\n",
-    );
+    console.log("\n🔍 DRY_RUN — analyzing with Gemini but skipping commit and publish\n");
   }
 
   // 1. Analyze each package ───────────────────────────────────────────────────
@@ -247,6 +243,7 @@ async function main() {
     const lastTag = getLastTag(pkg.name);
 
     if (!lastTag) {
+      // First-ever publish — no diff to analyze, use current version as-is
       console.log(`  ${pkg.name}  NEW  →  ${pkg.version}`);
       decisions.set(pkg.name, {
         pkg,
@@ -266,23 +263,8 @@ async function main() {
       continue;
     }
 
-    process.stdout.write(`  ${pkg.name}  `);
-
+    process.stdout.write(`  ${pkg.name}  analyzing...  `);
     const analysis = await analyzeWithGemini(pkg, diff);
-
-    if (!analysis) {
-      // DRY_RUN without credentials — assume patch so cascades still compute
-      const newVersion = bumpVersion(pkg.version, "patch");
-      console.log(`changed  (bump unknown without credentials)  →  ~${newVersion}`);
-      decisions.set(pkg.name, {
-        pkg,
-        bump: "patch",
-        newVersion,
-        changelogEntry: makeChangelogEntry(newVersion, "Changes detected", [], today),
-        isNew: false,
-      });
-      continue;
-    }
 
     if (analysis.bump === "none") {
       console.log(`no release needed`);
@@ -303,6 +285,8 @@ async function main() {
   }
 
   // 2. Cascade patch bumps to dependents ─────────────────────────────────────
+  // Any package whose runtime dep is releasing needs a new version so consumers
+  // get the correct dep version in the published package.json.
   let changed = true;
   while (changed) {
     changed = false;
@@ -364,7 +348,9 @@ async function main() {
   }
 
   // 4. Commit + tag + push ────────────────────────────────────────────────────
-  const releaseList = [...decisions.values()].map((d) => `${d.pkg.name}@${d.newVersion}`).join(", ");
+  const releaseList = [...decisions.values()]
+    .map((d) => `${d.pkg.name}@${d.newVersion}`)
+    .join(", ");
   console.log("\n📝 Committing...");
   git(`config user.email "github-actions[bot]@users.noreply.github.com"`);
   git(`config user.name "github-actions[bot]"`);
