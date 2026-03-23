@@ -18,8 +18,8 @@
     "check": "pnpm typecheck"
   },
   "dependencies": {
-    "@spoot/cn": "workspace:*",
-    "@spoot/rx": "workspace:*"
+    "@spoot/cn": "^1.3.0",
+    "@spoot/rx": "^1.0.0"
   },
   "peerDependencies": {
     "react": "catalog:"

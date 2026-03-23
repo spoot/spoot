@@ -18,11 +18,11 @@
     "check": "pnpm typecheck"
   },
   "dependencies": {
-    "@spoot/log": "workspace:*",
+    "@spoot/log": "^1.0.0",
     "iron-session": "^8.0.4",
     "next": "catalog:",
     "zod": "^3.25.67",
-    "@spoot/next-url": "workspace:*"
+    "@spoot/next-url": "^3.0.0"
   },
   "publishConfig": {
     "access": "public"

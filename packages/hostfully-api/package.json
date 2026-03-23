@@ -18,10 +18,10 @@
     "check": "pnpm typecheck"
   },
   "dependencies": {
-    "@spoot/day": "workspace:*",
-    "@spoot/gql": "workspace:*",
-    "@spoot/rx": "workspace:*",
-    "@spoot/schedule": "workspace:*",
+    "@spoot/day": "^1.0.0",
+    "@spoot/gql": "^1.0.0",
+    "@spoot/rx": "^1.0.0",
+    "@spoot/schedule": "^1.0.0",
     "dotenv": "^16.6.1",
     "zod": "^3.25.67"
   },
