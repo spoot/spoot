@@ -86,17 +86,17 @@ importers:
   packages/hostfully-api:
     dependencies:
       '@spoot/day':
-        specifier: workspace:*
-        version: link:../day
+        specifier: ^1.0.0
+        version: 1.0.1
       '@spoot/gql':
-        specifier: workspace:*
-        version: link:../gql
+        specifier: ^1.0.0
+        version: 1.0.0
       '@spoot/rx':
-        specifier: workspace:*
-        version: link:../rx
+        specifier: ^1.0.0
+        version: 1.0.0
       '@spoot/schedule':
-        specifier: workspace:*
-        version: link:../schedule
+        specifier: ^1.0.0
+        version: 1.0.1
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
@@ -109,11 +109,11 @@ importers:
   packages/next-session:
     dependencies:
       '@spoot/log':
-        specifier: workspace:*
-        version: link:../log
+        specifier: ^1.0.0
+        version: 1.0.0
       '@spoot/next-url':
-        specifier: workspace:*
-        version: link:../next-url
+        specifier: ^3.0.0
+        version: 3.0.0(next@15.5.12(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
       iron-session:
         specifier: ^8.0.4
         version: 8.0.4
@@ -133,11 +133,11 @@ importers:
   packages/react-vision-icon:
     dependencies:
       '@spoot/cn':
-        specifier: workspace:*
-        version: link:../cn
+        specifier: ^1.3.0
+        version: 1.3.0
       '@spoot/rx':
-        specifier: workspace:*
-        version: link:../rx
+        specifier: ^1.0.0
+        version: 1.0.0
       react:
         specifier: 'catalog:'
         version: 19.2.4
@@ -155,8 +155,8 @@ importers:
   packages/schedule:
     dependencies:
       '@spoot/day':
-        specifier: workspace:*
-        version: link:../day
+        specifier: ^1.0.0
+        version: 1.0.1
       fast-deep-equal:
         specifier: ^3.1.3
         version: 3.1.3
@@ -627,6 +627,29 @@ packages:
 
   '@sinonjs/fake-timers@10.3.0':
     resolution: {integrity: sha512-V4BG07kuYSUkTCSBHG8G8TNhM+F19jXFWnQtzj+we8DrkpSBCee9Z3Ms8yiGer/dlmhe35/Xdgyo3/0rQKg7YA==}
+
+  '@spoot/cn@1.3.0':
+    resolution: {integrity: sha512-T6BpPHVVtav4qx8isLuBqJ8oiMvaOpn+njyJ/BMMdS61i2k6+8zC5cq3hsHYI7H4zj8U6jAk5VIvTMtMyu2WHg==}
+
+  '@spoot/day@1.0.1':
+    resolution: {integrity: sha512-vzIt85MpI2QC3ZUlYBcykuzKK2G2/B5jGX/kRT5Dm5A6ec1SqObnsBrdSAYPtviGCE08oLbAVp+k6Xpmjf8/aQ==}
+
+  '@spoot/gql@1.0.0':
+    resolution: {integrity: sha512-V8QydFY06dzEbGGeJkqDGSpe06xSOpkhPzcFIRq8JPvZpTJFv4xfGPQcdIpsulfdsXG3XdQjeqN9FK5cBLfC1Q==}
+
+  '@spoot/log@1.0.0':
+    resolution: {integrity: sha512-PsNNTSJkgthr9c2HBaY75ikL9WcfkyyE9l4GAEaB6hCQyUE9gIxHrjOChWql0So2m+0KFDxvzq5fd9IgJn5w6w==}
+
+  '@spoot/next-url@3.0.0':
+    resolution: {integrity: sha512-E+dzO6rtf8YTU4ND32vkBs/LTO0VTcGVlkmbZkV8iQJtEwLvrZqsKvTj3JL68zxq3YYsJ/kB4sRyQv9cF9BSxQ==}
+    peerDependencies:
+      next: ^15.3.4
+
+  '@spoot/rx@1.0.0':
+    resolution: {integrity: sha512-iJheaVvaUbS9jv/XM6FFjLWNh3kVl5NSs3AAN6Izs7w196/dO7j3NK8Kdx+SuOR8JOWFdKM3JmjWhaEfuBYx3A==}
+
+  '@spoot/schedule@1.0.1':
+    resolution: {integrity: sha512-METLf5bje+zIlRfe7gm/1LcyuJd6EforJo0dDJYNXlzQErzRMrOJw4TfCOmHyht8seLdzLYVZ5Fmk+d92vxbjQ==}
 
   '@swc/helpers@0.5.15':
     resolution: {integrity: sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g==}
@@ -2168,6 +2191,34 @@ snapshots:
   '@sinonjs/fake-timers@10.3.0':
     dependencies:
       '@sinonjs/commons': 3.0.1
+
+  '@spoot/cn@1.3.0':
+    dependencies:
+      clsx: 2.1.1
+      tailwind-merge: 2.6.1
+
+  '@spoot/day@1.0.1': {}
+
+  '@spoot/gql@1.0.0':
+    dependencies:
+      graphql: 16.13.0
+      graphql-tag: 2.12.6(graphql@16.13.0)
+      zod: 3.25.76
+
+  '@spoot/log@1.0.0': {}
+
+  '@spoot/next-url@3.0.0(next@15.5.12(react-dom@19.2.4(react@19.2.4))(react@19.2.4))':
+    dependencies:
+      next: 15.5.12(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+
+  '@spoot/rx@1.0.0':
+    dependencies:
+      rxjs: 7.8.2
+
+  '@spoot/schedule@1.0.1':
+    dependencies:
+      '@spoot/day': link:packages/day
+      fast-deep-equal: 3.1.3
 
   '@swc/helpers@0.5.15':
     dependencies:
