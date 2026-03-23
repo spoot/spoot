@@ -755,13 +755,7 @@ async function main() {
       continue;
     }
 
-    console.log(`analyzing...`);
-    console.log(`\n${"─".repeat(60)}`);
-    console.log(`AI prompt for ${pkg.name}:`);
-    console.log(`${"─".repeat(60)}`);
-    console.log(`Commits since last release:\n${commitLog || "(none)"}\n`);
-    console.log(`Diff since last release:\n${diff.slice(0, 30_000)}`);
-    console.log(`${"─".repeat(60)}\n`);
+    process.stdout.write(`analyzing...  `);
     const analysis = await analyzeWithGemini(pkg, diff, commitLog);
     if (analysis.bump !== "none") {
       cache.set(cacheKey, analysis);
@@ -862,9 +856,13 @@ async function main() {
   console.log("\n🔨 Building packages...");
   execSync("pnpm build", { cwd: ROOT, stdio: "inherit" });
 
-  // 5. Publish ────────────────────────────────────────────────────────────────
-  // Publish BEFORE committing to git so a publish failure doesn't leave the
-  // git history ahead of npm.
+  // 5. Configure git (needed for commit + tag after each publish) ────────────
+  git(`config user.email "github-actions[bot]@users.noreply.github.com"`);
+  git(`config user.name "github-actions[bot]"`);
+
+  // 6. Publish each package, committing + tagging + pushing after each one ──
+  // This ensures that if a publish fails partway through, the packages that
+  // did publish have their version bumps committed to git.
   //
   // Strip pnpm-injected npm_config_* env vars before invoking npm directly —
   // they bleed through from the pnpm parent process and cause "Unknown config"
@@ -872,38 +870,59 @@ async function main() {
   const publishEnv = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !k.startsWith("npm_config_")),
   );
+  const NPM_PUBLISH_RETRIES = 3;
+  const NPM_RETRY_DELAY_MS = 5_000;
+  const failed: string[] = [];
+
   console.log("\n📤 Publishing to npm...\n");
   for (const [, d] of decisions) {
     console.log(`  ${d.pkg.name}@${d.newVersion}`);
     const provenance = process.env.CI === "true" ? " --provenance" : "";
-    execSync(`npm publish --access public${provenance}`, {
-      cwd: d.pkg.dir,
-      stdio: "inherit",
-      env: publishEnv,
-    });
-  }
 
-  // 6. Commit + tag + push ────────────────────────────────────────────────────
-  // Only commit packages that weren't already committed from a previous run.
-  if (newReleases.length > 0) {
-    const releaseList = newReleases.map((d) => `${d.pkg.name}@${d.newVersion}`).join(", ");
-    console.log("\n📝 Committing...");
-    git(`config user.email "github-actions[bot]@users.noreply.github.com"`);
-    git(`config user.name "github-actions[bot]"`);
-    git(`add -A`);
-    git(`commit -m "chore: release ${releaseList} [skip ci]"`);
-
-    for (const d of newReleases) {
-      const tag = `${d.pkg.name}@${d.newVersion}`;
-      // Annotated tags are required for --follow-tags to include them in the push.
-      execFileSync("git", ["tag", "-a", tag, "-m", tag], { cwd: ROOT });
-      console.log(`  Tagged: ${tag}`);
+    let published = false;
+    for (let attempt = 1; attempt <= NPM_PUBLISH_RETRIES; attempt++) {
+      try {
+        execSync(`npm publish --access public${provenance}`, {
+          cwd: d.pkg.dir,
+          stdio: "inherit",
+          env: publishEnv,
+        });
+        published = true;
+        break;
+      } catch {
+        if (attempt < NPM_PUBLISH_RETRIES) {
+          console.log(`  ⚠ Publish attempt ${attempt} failed, retrying in ${NPM_RETRY_DELAY_MS / 1000}s...`);
+          execSync(`sleep ${NPM_RETRY_DELAY_MS / 1000}`);
+        } else {
+          // All retries exhausted — rollback uncommitted version bump so the
+          // next run can re-analyze cleanly, then continue with other packages.
+          console.error(`  ✗ Failed to publish ${d.pkg.name}@${d.newVersion} after ${NPM_PUBLISH_RETRIES} attempts`);
+          if (!d.isAlreadyBumped) {
+            const relDir = d.pkg.dir.slice(ROOT.length + 1);
+            git(`checkout -- ${relDir}/package.json ${relDir}/CHANGELOG.md`);
+            console.log(`  ↩ Rolled back version bump for ${d.pkg.name}`);
+          }
+          failed.push(`${d.pkg.name}@${d.newVersion}`);
+        }
+      }
     }
 
-    console.log("\n⬆️  Pushing...");
-    git(`push origin HEAD:main --follow-tags`, { stdio: "inherit" });
-  } else {
-    console.log("\n(No new commits — all packages were re-published from a prior release commit)");
+    // Commit + tag + push immediately after a successful publish so this
+    // release is recorded in git even if a later package fails.
+    if (published && !d.isAlreadyBumped) {
+      const tag = `${d.pkg.name}@${d.newVersion}`;
+      const relDir = d.pkg.dir.slice(ROOT.length + 1);
+      git(`add ${relDir}/package.json ${relDir}/CHANGELOG.md`);
+      git(`commit -m "chore: release ${tag} [skip ci]"`);
+      execFileSync("git", ["tag", "-a", tag, "-m", tag], { cwd: ROOT });
+      git(`push origin HEAD:main --follow-tags`, { stdio: "inherit" });
+      console.log(`  ✓ Committed and pushed ${tag}`);
+    }
+  }
+
+  if (failed.length > 0) {
+    console.error(`\n❌ Failed to publish ${failed.length} package(s): ${failed.join(", ")}`);
+    process.exit(1);
   }
 
   console.log("\n✅ Done!\n");
