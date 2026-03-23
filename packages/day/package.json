@@ -1,6 +1,6 @@
 {
   "name": "@spoot/day",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Date utilities: type-safe Day, Week, Month, and CalendarWeek abstractions",
   "repository": {
     "type": "git",
