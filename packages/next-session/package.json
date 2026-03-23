@@ -1,6 +1,6 @@
 {
   "name": "@spoot/next-session",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Encrypted cookie sessions for Next.js using iron-session with Zod validation",
   "repository": {
     "type": "git",

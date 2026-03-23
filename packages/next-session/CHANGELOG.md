@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.3] - 2026-03-23
+
+- Replaced 'workspace:*' dependency for '@spoot/log' with '^1.0.0'.
+- Replaced 'workspace:*' dependency for '@spoot/next-url' with '^3.0.0'.
+
 ## [1.0.2] - 2026-02-28
 
 - Removed the import and usage of `isProdUrl` from `@spoot/next-url`.
