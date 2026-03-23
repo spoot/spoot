@@ -690,9 +690,10 @@ async function main() {
         continue;
       }
 
-      // New changes on top of the committed-but-unpublished version — analyze
-      // them and bump further from the current version.
-      sinceCommit = introCommit;
+      // New changes on top of the committed-but-unpublished version.
+      // Use the last published version as baseline so the AI sees ALL
+      // unreleased changes, not just what came after the failed release commit.
+      sinceCommit = getPublishedBaselineCommit(relDir, published) ?? introCommit;
     } else {
       // Current version is on npm — check for new work since that version.
       sinceCommit = getPublishedBaselineCommit(relDir, published);
