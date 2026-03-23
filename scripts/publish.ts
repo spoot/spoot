@@ -884,7 +884,7 @@ async function main() {
     let ok = false;
     for (let attempt = 1; attempt <= NPM_PUBLISH_RETRIES; attempt++) {
       try {
-        execSync(`npm publish --access public`, {
+        execSync(`npm publish --access public --provenance`, {
           cwd: d.pkg.dir,
           stdio: "inherit",
           env: publishEnv,
