@@ -871,6 +871,16 @@ async function main() {
   console.log("\n📤 Publishing to npm...\n");
   for (const [, d] of decisions) {
     console.log(`  ${d.pkg.name}@${d.newVersion}`);
+
+    // Skip publish if this version already exists on npm (e.g. a prior run
+    // published successfully but crashed before committing to git).
+    const alreadyOnNpm = getPublishedVersions(d.pkg.name).has(d.newVersion);
+    if (alreadyOnNpm) {
+      console.log(`  ✓ Already on npm, skipping publish`);
+      published.push(d);
+      continue;
+    }
+
     const provenance = process.env.CI === "true" ? " --provenance" : "";
 
     let ok = false;
