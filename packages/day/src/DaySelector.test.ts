@@ -59,7 +59,7 @@ describe("DaySelector", () => {
         ["2022-07-01", "2022-09-30", "O"],
         ["2022-10-01", "2023-02-28", "X"],
         ["2023-03-01", "2023-09-30", "O"],
-        ["2023-10-01", "2024-02-29", "X"],
+        ["2023-10-01", "2024-02-29", "X"], // 2024 is a leap year so feb has 29 days
         ["2024-03-01", "2024-07-31", "O"],
       ]);
     });
@@ -86,6 +86,38 @@ describe("DaySelector", () => {
         ["2024-01-24", "2024-01-24", "X"],
         ["2024-01-25", "2024-07-31", "O"],
       ]);
+    });
+  });
+
+  describe("adjacent month ranges don't overlap at boundaries", () => {
+    it("march 31 matches jan-mar but not apr-may", () => {
+      const janMar = new DaySelector(["jan"], ["mar"]);
+      const aprMay = new DaySelector(["apr"], ["may"]);
+      const mar31 = new Day(2026, 2, 31);
+      const apr1 = new Day(2026, 3, 1);
+
+      expect(janMar.match(mar31)).toBe(true);
+      expect(aprMay.match(mar31)).toBe(false);
+      expect(janMar.match(apr1)).toBe(false);
+      expect(aprMay.match(apr1)).toBe(true);
+    });
+
+    it("feb 28 in non-leap year matches jan-feb but not mar-apr", () => {
+      const janFeb = new DaySelector(["jan"], ["feb"]);
+      const marApr = new DaySelector(["mar"], ["apr"]);
+      const feb28 = new Day(2025, 1, 28); // 2025 is not a leap year
+
+      expect(janFeb.match(feb28)).toBe(true);
+      expect(marApr.match(feb28)).toBe(false);
+    });
+
+    it("feb 29 in leap year matches jan-feb but not mar-apr", () => {
+      const janFeb = new DaySelector(["jan"], ["feb"]);
+      const marApr = new DaySelector(["mar"], ["apr"]);
+      const feb29 = new Day(2024, 1, 29); // 2024 is a leap year
+
+      expect(janFeb.match(feb29)).toBe(true);
+      expect(marApr.match(feb29)).toBe(false);
     });
   });
 

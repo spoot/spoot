@@ -116,20 +116,38 @@ export class DaySelector {
     )
       return false;
 
-    // for the purpose of matching months and days, we pretend that every month has 31 days
-    // and assign a value of month * 31 + day to each end of the bounds, then plot the day
-    // on the same scale and check if it falls within the bounds
-    const lower = this.lower.month * 31 + (this.lower.day ?? 0);
-    const upper = this.upper.month * 31 + (this.upper.day ?? 31);
-    const d = day.month * 31 + day.day;
-    return lower > upper
-      ? // the bounds wrap around the end of the year
-        d >= lower || d <= upper
-      : // the bounds are within a single year
-        d >= lower && d <= upper;
+    // Check month/day boundaries precisely. When no day is specified,
+    // use 1 for the lower bound and the actual last day of the month
+    // for the upper bound.
+    const lm = this.lower.month;
+    const ld = this.lower.day ?? 1;
+    const um = this.upper.month;
+    const ud =
+      this.upper.day ?? new Day(day.year, this.upper.month, 1).endOfMonth.day;
+    const dm = day.month;
+    const dd = day.day;
+
+    const wrapped =
+      lm > um || (lm === um && ld > ud);
+
+    if (wrapped) {
+      // Range wraps around year end (e.g. oct-feb)
+      if (dm > lm || dm < um) return true;
+      if (dm === lm) return dd >= ld;
+      if (dm === um) return dd <= ud;
+      return false;
+    } else {
+      // Range within a single year (e.g. jan-mar)
+      if (dm > lm && dm < um) return true;
+      if (dm === lm && dm === um) return dd >= ld && dd <= ud;
+      if (dm === lm) return dd >= ld;
+      if (dm === um) return dd <= ud;
+      return false;
+    }
   }
 }
 
 function within(n: number, lower: number, upper: number): boolean {
   return n >= lower && n <= upper;
 }
+
