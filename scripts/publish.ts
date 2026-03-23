@@ -528,12 +528,16 @@ ${RESPONSE_SCHEMA}
 Rules for the "analysis" type:
 - "major": Breaking API changes — removed/renamed exports, changed signatures
 - "minor": New features, new exports, backward-compatible API additions
-- "patch": Bug fixes, perf improvements, internal refactoring with no API change
-- "none": Only test files, README, CI config, or whitespace — no runtime change
+- "patch": Bug fixes, perf improvements, internal refactoring with no API change,
+  dependency version changes in package.json
+- "none": ONLY when the diff contains nothing that affects the published package.
+  Changes to test files, README, or CI config are "none". But any change to src/
+  files or to dependencies/peerDependencies in package.json MUST result in at
+  least a "patch" bump — never "none".
 
 Pay attention to commit messages — they may explicitly indicate the bump type
 (e.g. "BREAKING CHANGE", "feat:", "fix:", or plain English like "this is a major change").
-Only src/ changes matter for the bump type. Use the "error" type if you cannot complete the analysis.
+Use the "error" type if you cannot complete the analysis.
 `.trim();
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -721,13 +725,12 @@ async function main() {
     const commitLog = getCommitLog(relDir, sinceCommit);
 
     // Return a cached result if we've already analyzed this exact diff.
+    // "none" results are not cached — the test-only check above handles
+    // the common case, and re-analyzing is cheap insurance against a
+    // prior false "none" from the AI.
     const cacheKey = diffCacheKey(pkg.name, diff, commitLog);
     const cached = cache.get(cacheKey);
-    if (cached) {
-      if (cached.bump === "none") {
-        console.log(`no release needed  [cached]`);
-        continue;
-      }
+    if (cached && cached.bump !== "none") {
       const cachedVersion = bumpVersion(pkg.version, cached.bump);
       console.log(`${cached.bump}  →  ${pkg.version}  →  ${cachedVersion}  [cached]`);
       console.log(`    ${cached.summary}`);
@@ -744,8 +747,10 @@ async function main() {
 
     process.stdout.write(`analyzing...  `);
     const analysis = await analyzeWithGemini(pkg, diff, commitLog);
-    cache.set(cacheKey, analysis);
-    saveCache(cache);
+    if (analysis.bump !== "none") {
+      cache.set(cacheKey, analysis);
+      saveCache(cache);
+    }
 
     if (analysis.bump === "none") {
       console.log(`no release needed`);
