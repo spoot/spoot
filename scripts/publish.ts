@@ -881,12 +881,10 @@ async function main() {
       continue;
     }
 
-    const provenance = process.env.CI === "true" ? " --provenance" : "";
-
     let ok = false;
     for (let attempt = 1; attempt <= NPM_PUBLISH_RETRIES; attempt++) {
       try {
-        execSync(`npm publish --access public${provenance}`, {
+        execSync(`npm publish --access public`, {
           cwd: d.pkg.dir,
           stdio: "inherit",
           env: publishEnv,

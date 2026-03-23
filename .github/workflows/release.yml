@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write  # push version-bump commits and tags
-      id-token: write  # request OIDC token for npm provenance publishing
 
     steps:
       - uses: actions/checkout@v4
