@@ -745,7 +745,13 @@ async function main() {
       continue;
     }
 
-    process.stdout.write(`analyzing...  `);
+    console.log(`analyzing...`);
+    console.log(`\n${"─".repeat(60)}`);
+    console.log(`AI prompt for ${pkg.name}:`);
+    console.log(`${"─".repeat(60)}`);
+    console.log(`Commits since last release:\n${commitLog || "(none)"}\n`);
+    console.log(`Diff since last release:\n${diff.slice(0, 30_000)}`);
+    console.log(`${"─".repeat(60)}\n`);
     const analysis = await analyzeWithGemini(pkg, diff, commitLog);
     if (analysis.bump !== "none") {
       cache.set(cacheKey, analysis);
