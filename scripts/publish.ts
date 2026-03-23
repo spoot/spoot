@@ -856,14 +856,7 @@ async function main() {
   console.log("\n🔨 Building packages...");
   execSync("pnpm build", { cwd: ROOT, stdio: "inherit" });
 
-  // 5. Configure git (needed for commit + tag after each publish) ────────────
-  git(`config user.email "github-actions[bot]@users.noreply.github.com"`);
-  git(`config user.name "github-actions[bot]"`);
-
-  // 6. Publish each package, committing + tagging + pushing after each one ──
-  // This ensures that if a publish fails partway through, the packages that
-  // did publish have their version bumps committed to git.
-  //
+  // 5. Publish ────────────────────────────────────────────────────────────────
   // Strip pnpm-injected npm_config_* env vars before invoking npm directly —
   // they bleed through from the pnpm parent process and cause "Unknown config"
   // warnings in npm 10+ (catalog, verify-deps-before-run, _jsr-registry, etc.).
@@ -872,6 +865,7 @@ async function main() {
   );
   const NPM_PUBLISH_RETRIES = 3;
   const NPM_RETRY_DELAY_MS = 5_000;
+  const published: ReleaseDecision[] = [];
   const failed: string[] = [];
 
   console.log("\n📤 Publishing to npm...\n");
@@ -879,7 +873,7 @@ async function main() {
     console.log(`  ${d.pkg.name}@${d.newVersion}`);
     const provenance = process.env.CI === "true" ? " --provenance" : "";
 
-    let published = false;
+    let ok = false;
     for (let attempt = 1; attempt <= NPM_PUBLISH_RETRIES; attempt++) {
       try {
         execSync(`npm publish --access public${provenance}`, {
@@ -887,16 +881,15 @@ async function main() {
           stdio: "inherit",
           env: publishEnv,
         });
-        published = true;
+        ok = true;
         break;
       } catch {
         if (attempt < NPM_PUBLISH_RETRIES) {
           console.log(`  ⚠ Publish attempt ${attempt} failed, retrying in ${NPM_RETRY_DELAY_MS / 1000}s...`);
           execSync(`sleep ${NPM_RETRY_DELAY_MS / 1000}`);
         } else {
-          // All retries exhausted — rollback uncommitted version bump so the
-          // next run can re-analyze cleanly, then continue with other packages.
           console.error(`  ✗ Failed to publish ${d.pkg.name}@${d.newVersion} after ${NPM_PUBLISH_RETRIES} attempts`);
+          // Rollback the uncommitted version bump so the next run re-analyzes cleanly.
           if (!d.isAlreadyBumped) {
             const relDir = d.pkg.dir.slice(ROOT.length + 1);
             git(`checkout -- ${relDir}/package.json ${relDir}/CHANGELOG.md`);
@@ -907,17 +900,29 @@ async function main() {
       }
     }
 
-    // Commit + tag + push immediately after a successful publish so this
-    // release is recorded in git even if a later package fails.
-    if (published && !d.isAlreadyBumped) {
+    if (ok) published.push(d);
+  }
+
+  // 7. Commit + tag + push ────────────────────────────────────────────────────
+  const toCommit = published.filter((d) => !d.isAlreadyBumped);
+  if (toCommit.length > 0) {
+    const releaseList = toCommit.map((d) => `${d.pkg.name}@${d.newVersion}`).join(", ");
+    console.log("\n📝 Committing...");
+    git(`config user.email "github-actions[bot]@users.noreply.github.com"`);
+    git(`config user.name "github-actions[bot]"`);
+    git(`add -A`);
+    git(`commit -m "chore: release ${releaseList} [skip ci]"`);
+
+    for (const d of toCommit) {
       const tag = `${d.pkg.name}@${d.newVersion}`;
-      const relDir = d.pkg.dir.slice(ROOT.length + 1);
-      git(`add ${relDir}/package.json ${relDir}/CHANGELOG.md`);
-      git(`commit -m "chore: release ${tag} [skip ci]"`);
       execFileSync("git", ["tag", "-a", tag, "-m", tag], { cwd: ROOT });
-      git(`push origin HEAD:main --follow-tags`, { stdio: "inherit" });
-      console.log(`  ✓ Committed and pushed ${tag}`);
+      console.log(`  Tagged: ${tag}`);
     }
+
+    console.log("\n⬆️  Pushing...");
+    git(`push origin HEAD:main --follow-tags`, { stdio: "inherit" });
+  } else if (published.length > 0) {
+    console.log("\n(No new commits — all packages were re-published from a prior release commit)");
   }
 
   if (failed.length > 0) {
