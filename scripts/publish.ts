@@ -153,10 +153,10 @@ function getPublishedVersions(pkgName: string): Set<string> {
 }
 
 // Walk git log for the package's package.json from newest commit to oldest.
-// Stop at the first commit whose version is already on the npm registry —
-// that is the published baseline.  Everything between that commit and HEAD
-// is unreleased work.  Returns null if no published version appears in history
-// (the package is genuinely new).
+// Find the most recent published version, then return the oldest consecutive
+// commit that carries it (the actual release commit).  This avoids returning
+// a post-release edit that happens to have the same version field.
+// Returns null if no published version appears in history.
 function getPublishedBaselineCommit(
   relDir: string,
   published: Set<string>,
@@ -172,6 +172,8 @@ function getPublishedBaselineCommit(
     .split("\n")
     .filter(Boolean);
 
+  // First pass: find the most recent published version in history
+  let publishedVersion: string | null = null;
   for (const sha of shas) {
     try {
       const pkg: PackageJson = JSON.parse(
@@ -180,12 +182,19 @@ function getPublishedBaselineCommit(
           encoding: "utf8",
         }),
       );
-      if (published.has(pkg.version)) return sha;
+      if (published.has(pkg.version)) {
+        publishedVersion = pkg.version;
+        break;
+      }
     } catch {
-      break; // package.json didn't exist at this commit
+      break;
     }
   }
-  return null;
+
+  if (!publishedVersion) return null;
+
+  // Second pass: find the intro commit for that version
+  return getVersionIntroCommit(relDir, publishedVersion);
 }
 
 // Walk git log for the package's package.json from newest to oldest.
@@ -699,8 +708,9 @@ async function main() {
       // unreleased changes, not just what came after the failed release commit.
       sinceCommit = getPublishedBaselineCommit(relDir, published) ?? introCommit;
     } else {
-      // Current version is on npm — check for new work since that version.
-      sinceCommit = getPublishedBaselineCommit(relDir, published);
+      // Current version is on npm — find the commit that introduced it
+      // (the actual release commit) and check for new work since then.
+      sinceCommit = getVersionIntroCommit(relDir, pkg.version);
       if (!sinceCommit) {
         console.log(`unchanged  (${pkg.version})`);
         continue;
