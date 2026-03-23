@@ -8,9 +8,6 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   release:
     name: Analyze & Publish
@@ -20,14 +17,14 @@ jobs:
       id-token: write  # OIDC token for npm trusted publisher auth
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Full history so the script can find git tags from previous releases
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
@@ -38,7 +35,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Restore analysis cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/spoot-release-cache.json
           key: spoot-release-cache-v1-${{ github.sha }}
