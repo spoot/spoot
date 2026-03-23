@@ -1,6 +1,6 @@
 {
   "name": "@spoot/cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Type-safe CLI argument parsing and command framework for Node.js scripts",
   "repository": {
     "type": "git",
